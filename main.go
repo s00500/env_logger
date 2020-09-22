@@ -4,7 +4,7 @@ import (
 	"runtime"
 	"os"
 	"strings"
-	logrus "github.com/Sirupsen/logrus"
+	logrus "github.com/sirupsen/logrus"
 )
 
 var (
