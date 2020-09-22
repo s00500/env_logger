@@ -1,5 +1,5 @@
 module github.com/s00500/env_logger
 
 require (
-	github.com/Sirupsen/logrus v1.6.0
+	github.com/sirupsen/logrus v1.6.0
 )
