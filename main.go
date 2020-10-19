@@ -1,29 +1,50 @@
 package env_logger
 
 import (
-	"runtime"
 	"os"
+	"runtime"
 	"strings"
+
 	logrus "github.com/sirupsen/logrus"
 )
 
 var (
 	internalLogger = logrus.New()
-	defaultLogger *logrus.Logger
-	loggers = make(map[string]*logrus.Logger)
+	defaultLogger  *logrus.Logger
+	loggers        = make(map[string]*logrus.Logger)
 )
 
 const (
 	DebugV = iota
-	InfoV = iota
-	WarnV = iota
+	InfoV  = iota
+	WarnV  = iota
 )
 
 type Logger interface {
-        // New()  Logger // used to instantiate a new logger
+	// New()  Logger // used to instantiate a new logger
+
+	Tracef(format string, args ...interface{})
+	Traceln(...interface{})
+	Trace(...interface{})
+
+	Printf(format string, args ...interface{})
+	Println(...interface{})
+	Print(...interface{})
+
+	Debugf(format string, args ...interface{})
+	Debugln(...interface{})
 	Debug(...interface{})
+
+	Infof(format string, args ...interface{})
+	Infoln(...interface{})
 	Info(...interface{})
+
+	Warnf(format string, args ...interface{})
+	Warnln(...interface{})
 	Warn(...interface{})
+
+	Fatalf(format string, args ...interface{})
+	Fatalln(...interface{})
 	Fatal(...interface{})
 }
 
@@ -56,19 +77,19 @@ func configurePackageLogger(log *logrus.Logger, value int) *logrus.Logger {
 }
 
 // ConfigureDefaultLogger instantiates a default logger instance
-func ConfigureInternalLogger(newInternalLogger *logrus.Logger)  {
+func ConfigureInternalLogger(newInternalLogger *logrus.Logger) {
 	internalLogger = newInternalLogger
 }
 
 // ConfigureDefaultLogger instantiates a default logger instance
-func ConfigureDefaultLogger()  {
-    defaultLogger = logrus.New()
-    ConfigureLogger(defaultLogger)
+func ConfigureDefaultLogger() {
+	defaultLogger = logrus.New()
+	ConfigureLogger(defaultLogger)
 }
 
-// ConfigureLogger takes in a prefix and a logger object and configures the logger depending on environment variables. 
+// ConfigureLogger takes in a prefix and a logger object and configures the logger depending on environment variables.
 // Configured based on the GOLANG_DEBUG environment variable
-func ConfigureLogger(newDefaultLogger *logrus.Logger)  {
+func ConfigureLogger(newDefaultLogger *logrus.Logger) {
 	levels := make(map[string]int)
 
 	if debugRaw, ok := os.LookupEnv("GOLANG_LOG"); ok {
@@ -100,29 +121,30 @@ func ConfigureLogger(newDefaultLogger *logrus.Logger)  {
 }
 
 // Props to https://stackoverflow.com/a/35213181 for the code
-func getPackage () string {
+func getPackage() string {
 
-    // we get the callers as uintptrs - but we just need 1
-    fpcs := make([]uintptr, 1)
+	// we get the callers as uintptrs - but we just need 1
+	fpcs := make([]uintptr, 1)
 
-    // skip 4 levels to get to the caller of whoever called getPackage()
-    n := runtime.Callers(4, fpcs)
-    if n == 0 {
-       return "" // proper error her would be better
-    }
+	// skip 4 levels to get to the caller of whoever called getPackage()
+	n := runtime.Callers(4, fpcs)
+	if n == 0 {
+		return "" // proper error her would be better
+	}
 
-    // get the info of the actual function that's in the pointer
-    fun := runtime.FuncForPC(fpcs[0]-1)
-    if fun == nil {
-      return ""
-    }
+	// get the info of the actual function that's in the pointer
+	fun := runtime.FuncForPC(fpcs[0] - 1)
+	if fun == nil {
+		return ""
+	}
 
-    name := fun.Name()
-    // return its name
+	name := fun.Name()
+	// return its name
 	return strings.Split(name, ".")[0]
 }
 
 type F func(Logger)
+
 func printLog(f F) {
 	pkg := getPackage()
 	internalLogger.Debug("pkg: ", pkg)
@@ -134,28 +156,112 @@ func printLog(f F) {
 }
 
 // Warn prints a warning...
-func Warn(args ...interface{})  {
+func Warn(args ...interface{}) {
 	lambda := func(log Logger) {
 		log.Warn(args...)
 	}
 	printLog(lambda)
 }
 
-func Info(args ...interface{})  {
+func Info(args ...interface{}) {
 	lambda := func(log Logger) {
 		log.Info(args...)
 	}
 	printLog(lambda)
 }
 
-func Debug(args ...interface{})  {
+func Infoln(args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Infoln(args...)
+	}
+	printLog(lambda)
+}
+
+func Infof(format string, args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Infof(format, args...)
+	}
+	printLog(lambda)
+}
+
+func Trace(args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Trace(args...)
+	}
+	printLog(lambda)
+}
+
+func Traceln(args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Traceln(args...)
+	}
+	printLog(lambda)
+}
+
+func Tracef(format string, args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Tracef(format, args...)
+	}
+	printLog(lambda)
+}
+
+func Debug(args ...interface{}) {
 	lambda := func(log Logger) {
 		log.Debug(args...)
 	}
 	printLog(lambda)
 }
 
-func Fatal(args ...interface{})  {
+func Debugln(args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Debugln(args...)
+	}
+	printLog(lambda)
+}
+
+func Debugf(format string, args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Debugf(format, args...)
+	}
+	printLog(lambda)
+}
+
+func Print(args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Print(args...)
+	}
+	printLog(lambda)
+}
+
+func Println(args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Println(args...)
+	}
+	printLog(lambda)
+}
+
+func Printf(format string, args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Printf(format, args...)
+	}
+	printLog(lambda)
+}
+
+func Fatal(args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Fatal(args...)
+	}
+	printLog(lambda)
+}
+
+func Fatalln(format string, args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Fatal(args...)
+	}
+	printLog(lambda)
+}
+
+func Fatalf(args ...interface{}) {
 	lambda := func(log Logger) {
 		log.Fatal(args...)
 	}

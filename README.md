@@ -37,6 +37,8 @@ This example sets everything to _Debug_.
 
 # TODO
 
+- Add all log functions from logerus
+- Add module name to log statement (at least the final part of the path)
 - add an interface so that any logger can be injected as the canonical logger (currently only logrus is supported)
 
 ``` go
