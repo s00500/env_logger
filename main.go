@@ -257,21 +257,21 @@ func Printf(format string, args ...interface{}) {
 
 func Error(args ...interface{}) {
 	lambda := func(log Logger) {
-		log.Fatal(args...)
+		log.Error(args...)
 	}
 	printLog(lambda)
 }
 
-func Errorln(format string, args ...interface{}) {
+func Errorf(format string, args ...interface{}) {
 	lambda := func(log Logger) {
-		log.Fatal(args...)
+		log.Errorf(format, args...)
 	}
 	printLog(lambda)
 }
 
-func Errorf(args ...interface{}) {
+func Errorln(args ...interface{}) {
 	lambda := func(log Logger) {
-		log.Fatal(args...)
+		log.Errorln(args...)
 	}
 	printLog(lambda)
 }
@@ -283,16 +283,16 @@ func Fatal(args ...interface{}) {
 	printLog(lambda)
 }
 
-func Fatalln(format string, args ...interface{}) {
+func Fatalf(format string, args ...interface{}) {
 	lambda := func(log Logger) {
-		log.Fatal(args...)
+		log.Fatalf(format, args...)
 	}
 	printLog(lambda)
 }
 
-func Fatalf(args ...interface{}) {
+func Fatalln(args ...interface{}) {
 	lambda := func(log Logger) {
-		log.Fatal(args...)
+		log.Fatalln(args...)
 	}
 	printLog(lambda)
 }
@@ -304,16 +304,16 @@ func Panic(args ...interface{}) {
 	printLog(lambda)
 }
 
-func Panicln(format string, args ...interface{}) {
+func Panicf(format string, args ...interface{}) {
 	lambda := func(log Logger) {
-		log.Fatal(args...)
+		log.Panicf(format, args...)
 	}
 	printLog(lambda)
 }
 
-func Panicf(args ...interface{}) {
+func Panicln(args ...interface{}) {
 	lambda := func(log Logger) {
-		log.Fatal(args...)
+		log.Panicln(args...)
 	}
 	printLog(lambda)
 }
