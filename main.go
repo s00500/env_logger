@@ -171,6 +171,20 @@ func Warn(args ...interface{}) {
 	printLog(lambda)
 }
 
+func Warnln(args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Warnln(args...)
+	}
+	printLog(lambda)
+}
+
+func Warnf(format string, args ...interface{}) {
+	lambda := func(log Logger) {
+		log.Warnf(format, args...)
+	}
+	printLog(lambda)
+}
+
 func Info(args ...interface{}) {
 	lambda := func(log Logger) {
 		log.Info(args...)
