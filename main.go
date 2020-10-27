@@ -157,10 +157,10 @@ func printLog(f F) {
 	pkg := getPackage()
 	internalLogger.Debug("pkg: ", pkg)
 	if log, ok := loggers[pkg]; ok {
-		f(log)
+		f(log.WithFields(logrus.Fields{"module": pkg}))
 		return
 	}
-	f(defaultLogger)
+	f(defaultLogger.WithFields(logrus.Fields{"module": pkg}))
 }
 
 // Warn prints a warning...
