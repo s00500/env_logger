@@ -148,7 +148,7 @@ func getPackage() string {
 
 	name := fun.Name()
 	// return its name
-	return strings.Split(name, ".")[0]
+	return name[0:strings.LastIndex(name, ".")]
 }
 
 type F func(Logger)
