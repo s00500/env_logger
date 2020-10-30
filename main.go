@@ -147,8 +147,10 @@ func getPackage() string {
 	}
 
 	name := fun.Name()
+	lastSlash := strings.LastIndex(name, "/") + 1
+	firstPoint := strings.Index(name[lastSlash:], ".")
 	// return its name
-	return name[0:strings.LastIndex(name, ".")]
+	return name[0 : lastSlash+firstPoint]
 }
 
 type F func(Logger)
