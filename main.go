@@ -112,6 +112,11 @@ func GetLoggerForPrefix(prefix string) Logger {
 	return Logger(defaultLogger.WithFields(logrus.Fields{"module": prefix}))
 }
 
+// SetLevel sets the default loggers level
+func SetLevel(level logrus.Level) {
+	defaultLogger.SetLevel(level)
+}
+
 // ConfigureLogger takes in a prefix and a logger object and configures the logger depending on environment variables.
 // Configured based on the GOLANG_DEBUG environment variable
 func ConfigureLogger(newdefaultLogger *logrus.Logger) {
