@@ -10,14 +10,16 @@ import (
 
 var (
 	internalLogger = logrus.New()
-	DefaultLogger  *logrus.Logger
+	defaultLogger  *logrus.Logger
 	loggers        = make(map[string]*logrus.Logger)
 )
 
 const (
+	TraceV = iota
 	DebugV = iota
 	InfoV  = iota
 	WarnV  = iota
+	ErrV   = iota
 )
 
 type Logger interface {
@@ -58,12 +60,16 @@ type Logger interface {
 
 func toEnum(s string) int {
 	switch strings.ToLower(s) {
+	case "trace":
+		return TraceV
 	case "warn":
 		return WarnV
 	case "debug":
 		return DebugV
 	case "info":
 		return InfoV
+	case "error":
+		return ErrV
 	default:
 		return InfoV
 	}
@@ -72,31 +78,43 @@ func toEnum(s string) int {
 
 func configurePackageLogger(log *logrus.Logger, value int) *logrus.Logger {
 	switch value {
+	case ErrV:
+		log.SetLevel(logrus.ErrorLevel)
 	case WarnV:
 		log.SetLevel(logrus.WarnLevel)
 	case InfoV:
 		log.SetLevel(logrus.InfoLevel)
 	case DebugV:
 		log.SetLevel(logrus.DebugLevel)
+	case TraceV:
+		log.SetLevel(logrus.TraceLevel)
 	default:
 		log.SetLevel(logrus.InfoLevel)
 	}
 	return log
 }
 
-// ConfigureDefaultLogger instantiates a default logger instance
+// ConfiguredefaultLogger instantiates a default logger instance
 func ConfigureInternalLogger(newInternalLogger *logrus.Logger) {
 	internalLogger = newInternalLogger
 }
 
 func init() {
-	DefaultLogger = logrus.New()
-	ConfigureLogger(DefaultLogger)
+	defaultLogger = logrus.New()
+	ConfigureLogger(defaultLogger)
+}
+
+// GetLoggerForPrefix gets the logger for a certain prefix if it has been configured
+func GetLoggerForPrefix(prefix string) Logger {
+	if logger, ok := loggers[prefix]; ok {
+		return Logger(logger.WithFields(logrus.Fields{"module": prefix}))
+	}
+	return Logger(defaultLogger.WithFields(logrus.Fields{"module": prefix}))
 }
 
 // ConfigureLogger takes in a prefix and a logger object and configures the logger depending on environment variables.
 // Configured based on the GOLANG_DEBUG environment variable
-func ConfigureLogger(newDefaultLogger *logrus.Logger) {
+func ConfigureLogger(newdefaultLogger *logrus.Logger) {
 	levels := make(map[string]int)
 
 	if debugRaw, ok := os.LookupEnv("GOLANG_LOG"); ok {
@@ -110,7 +128,7 @@ func ConfigureLogger(newDefaultLogger *logrus.Logger) {
 			} else if len(tmp) == 2 {
 				levels[tmp[0]] = toEnum(tmp[1])
 			} else {
-				newDefaultLogger.Fatal("line: '", pkg, "' is formatted incorrectly, please refer to the documentation for correct usage")
+				newdefaultLogger.Fatal("line: '", pkg, "' is formatted incorrectly, please refer to the documentation for correct usage")
 			}
 		}
 	}
@@ -121,9 +139,9 @@ func ConfigureLogger(newDefaultLogger *logrus.Logger) {
 
 	// configure main logger
 	if value, ok := loggers["main"]; ok {
-		DefaultLogger = value
+		defaultLogger = value
 	} else {
-		DefaultLogger = newDefaultLogger
+		defaultLogger = newdefaultLogger
 	}
 }
 
@@ -161,7 +179,7 @@ func printLog(f F) {
 		f(log.WithFields(logrus.Fields{"module": pkg}))
 		return
 	}
-	f(DefaultLogger.WithFields(logrus.Fields{"module": pkg}))
+	f(defaultLogger.WithFields(logrus.Fields{"module": pkg}))
 }
 
 // Warn prints a warning...
