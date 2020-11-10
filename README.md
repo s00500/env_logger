@@ -1,15 +1,10 @@
 # env_logger
 
-This is a super simple project which aims to help out with setting up logging correctly in your project.
+This is a super simple project which aims to help out with setting up logging correctly in your project. It is a true drop in replacement for `logrus` logger atm.
 
 Currently it only supports `logrus`, but PR's are welcome to support additional loggers.
 
 # Usage
-
-The project is fairly simple to use, you include it in your project as if it were a normal logging library.
-There are currently two ways to setup the log-library. The first is to simply call `ConfigureDefaultLogger()`.
-This will set everything up according to the rules specified below. The other is to pass in a preconfigured logger
-to the project via `ConfigureLogger(logger *logrus.Logger)` which will be used as the default logger.
 
 The entire logging framework is configured via a single environment variable `GOLANG_LOG`. The variable is a comma delimited list
 of packages and their respective log-levels. (falling back to InfoLevel if not configured).

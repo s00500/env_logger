@@ -10,7 +10,7 @@ import (
 
 var (
 	internalLogger = logrus.New()
-	defaultLogger  *logrus.Logger
+	DefaultLogger  *logrus.Logger
 	loggers        = make(map[string]*logrus.Logger)
 )
 
@@ -89,10 +89,9 @@ func ConfigureInternalLogger(newInternalLogger *logrus.Logger) {
 	internalLogger = newInternalLogger
 }
 
-// ConfigureDefaultLogger instantiates a default logger instance
-func ConfigureDefaultLogger() {
-	defaultLogger = logrus.New()
-	ConfigureLogger(defaultLogger)
+func init() {
+	DefaultLogger = logrus.New()
+	ConfigureLogger(DefaultLogger)
 }
 
 // ConfigureLogger takes in a prefix and a logger object and configures the logger depending on environment variables.
@@ -122,9 +121,9 @@ func ConfigureLogger(newDefaultLogger *logrus.Logger) {
 
 	// configure main logger
 	if value, ok := loggers["main"]; ok {
-		defaultLogger = value
+		DefaultLogger = value
 	} else {
-		defaultLogger = newDefaultLogger
+		DefaultLogger = newDefaultLogger
 	}
 }
 
@@ -162,7 +161,7 @@ func printLog(f F) {
 		f(log.WithFields(logrus.Fields{"module": pkg}))
 		return
 	}
-	f(defaultLogger.WithFields(logrus.Fields{"module": pkg}))
+	f(DefaultLogger.WithFields(logrus.Fields{"module": pkg}))
 }
 
 // Warn prints a warning...
