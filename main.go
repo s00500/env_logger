@@ -22,8 +22,12 @@ const (
 	ErrV   = iota
 )
 
+// This should actually be logerus.FieldLogger
 type Logger interface {
 	// New()  Logger // used to instantiate a new logger
+	WithField(key string, value interface{}) *logrus.Entry
+	WithFields(fields logrus.Fields) *logrus.Entry
+	WithError(err error) *logrus.Entry
 
 	Tracef(format string, args ...interface{})
 	Traceln(...interface{})
@@ -175,16 +179,31 @@ func getPackage() string {
 	return name[0 : lastSlash+firstPoint]
 }
 
-type F func(Logger)
-
-func printLog(f F) {
+func getLogger() *logrus.Entry {
 	pkg := getPackage()
 	internalLogger.Debug("pkg: ", pkg)
 	if log, ok := loggers[pkg]; ok {
-		f(log.WithFields(logrus.Fields{"module": pkg}))
-		return
+		return log.WithFields(logrus.Fields{"module": pkg})
 	}
-	f(defaultLogger.WithFields(logrus.Fields{"module": pkg}))
+	return defaultLogger.WithFields(logrus.Fields{"module": pkg})
+}
+
+type F func(Logger)
+
+func printLog(f F) {
+	f(getLogger())
+}
+
+func WithField(key string, value interface{}) *logrus.Entry {
+	return getLogger().WithField(key, value)
+}
+
+func WithFields(fields logrus.Fields) *logrus.Entry {
+	return getLogger().WithFields(fields)
+}
+
+func WithError(err error) *logrus.Entry {
+	return getLogger().WithError(err)
 }
 
 // Warn prints a warning...
