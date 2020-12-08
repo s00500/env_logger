@@ -2,8 +2,6 @@
 
 This is a super simple project which aims to help out with setting up logging correctly in your project. It is a true drop in replacement for `logrus` logger atm.
 
-Currently it only supports `logrus`, but PR's are welcome to support additional loggers.
-
 # Usage
 
 The entire logging framework is configured via a single environment variable `GOLANG_LOG`. The variable is a comma delimited list
