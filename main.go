@@ -22,46 +22,6 @@ const (
 	ErrV   = iota
 )
 
-// This should actually be logerus.FieldLogger
-type Logger interface {
-	// New()  Logger // used to instantiate a new logger
-	WithField(key string, value interface{}) *logrus.Entry
-	WithFields(fields logrus.Fields) *logrus.Entry
-	WithError(err error) *logrus.Entry
-
-	Tracef(format string, args ...interface{})
-	Traceln(...interface{})
-	Trace(...interface{})
-
-	Printf(format string, args ...interface{})
-	Println(...interface{})
-	Print(...interface{})
-
-	Debugf(format string, args ...interface{})
-	Debugln(...interface{})
-	Debug(...interface{})
-
-	Infof(format string, args ...interface{})
-	Infoln(...interface{})
-	Info(...interface{})
-
-	Warnf(format string, args ...interface{})
-	Warnln(...interface{})
-	Warn(...interface{})
-
-	Errorf(format string, args ...interface{})
-	Errorln(...interface{})
-	Error(...interface{})
-
-	Panicf(format string, args ...interface{})
-	Panicln(...interface{})
-	Panic(...interface{})
-
-	Fatalf(format string, args ...interface{})
-	Fatalln(...interface{})
-	Fatal(...interface{})
-}
-
 func toEnum(s string) int {
 	switch strings.ToLower(s) {
 	case "trace":
@@ -77,7 +37,6 @@ func toEnum(s string) int {
 	default:
 		return InfoV
 	}
-
 }
 
 func configurePackageLogger(log *logrus.Logger, value int) *logrus.Logger {
@@ -109,11 +68,11 @@ func init() {
 }
 
 // GetLoggerForPrefix gets the logger for a certain prefix if it has been configured
-func GetLoggerForPrefix(prefix string) Logger {
+func GetLoggerForPrefix(prefix string) logrus.FieldLogger {
 	if logger, ok := loggers[prefix]; ok {
-		return Logger(logger.WithFields(logrus.Fields{"module": prefix}))
+		return logger.WithFields(logrus.Fields{"module": prefix})
 	}
-	return Logger(defaultLogger.WithFields(logrus.Fields{"module": prefix}))
+	return defaultLogger.WithFields(logrus.Fields{"module": prefix})
 }
 
 // SetLevel sets the default loggers level
@@ -188,12 +147,6 @@ func getLogger() *logrus.Entry {
 	return defaultLogger.WithFields(logrus.Fields{"module": pkg})
 }
 
-type F func(Logger)
-
-func printLog(f F) {
-	f(getLogger())
-}
-
 func WithField(key string, value interface{}) *logrus.Entry {
 	return getLogger().WithField(key, value)
 }
@@ -208,169 +161,97 @@ func WithError(err error) *logrus.Entry {
 
 // Warn prints a warning...
 func Warn(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Warn(args...)
-	}
-	printLog(lambda)
+	getLogger().Warn(args...)
 }
 
 func Warnln(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Warnln(args...)
-	}
-	printLog(lambda)
+	getLogger().Warnln(args...)
 }
 
 func Warnf(format string, args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Warnf(format, args...)
-	}
-	printLog(lambda)
+	getLogger().Warnf(format, args...)
 }
 
 func Info(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Info(args...)
-	}
-	printLog(lambda)
+	getLogger().Info(args...)
 }
 
 func Infoln(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Infoln(args...)
-	}
-	printLog(lambda)
+	getLogger().Infoln(args...)
 }
 
 func Infof(format string, args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Infof(format, args...)
-	}
-	printLog(lambda)
+	getLogger().Infof(format, args...)
 }
 
 func Trace(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Trace(args...)
-	}
-	printLog(lambda)
+	getLogger().Trace(args...)
 }
 
 func Traceln(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Traceln(args...)
-	}
-	printLog(lambda)
+	getLogger().Traceln(args...)
 }
 
 func Tracef(format string, args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Tracef(format, args...)
-	}
-	printLog(lambda)
+	getLogger().Tracef(format, args...)
 }
 
 func Debug(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Debug(args...)
-	}
-	printLog(lambda)
+	getLogger().Debug(args...)
 }
 
 func Debugln(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Debugln(args...)
-	}
-	printLog(lambda)
+	getLogger().Debugln(args...)
 }
 
 func Debugf(format string, args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Debugf(format, args...)
-	}
-	printLog(lambda)
+	getLogger().Debugf(format, args...)
 }
 
 func Print(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Print(args...)
-	}
-	printLog(lambda)
+	getLogger().Print(args...)
 }
 
 func Println(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Println(args...)
-	}
-	printLog(lambda)
+	getLogger().Println(args...)
 }
 
 func Printf(format string, args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Printf(format, args...)
-	}
-	printLog(lambda)
+	getLogger().Printf(format, args...)
 }
 
 func Error(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Error(args...)
-	}
-	printLog(lambda)
+	getLogger().Error(args...)
 }
 
 func Errorf(format string, args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Errorf(format, args...)
-	}
-	printLog(lambda)
+	getLogger().Errorf(format, args...)
 }
 
 func Errorln(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Errorln(args...)
-	}
-	printLog(lambda)
+	getLogger().Errorln(args...)
 }
 
 func Fatal(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Fatal(args...)
-	}
-	printLog(lambda)
+	getLogger().Fatal(args...)
 }
 
 func Fatalf(format string, args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Fatalf(format, args...)
-	}
-	printLog(lambda)
+	getLogger().Fatalf(format, args...)
 }
 
 func Fatalln(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Fatalln(args...)
-	}
-	printLog(lambda)
+	getLogger().Fatalln(args...)
 }
 
 func Panic(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Fatal(args...)
-	}
-	printLog(lambda)
+	getLogger().Fatal(args...)
 }
 
 func Panicf(format string, args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Panicf(format, args...)
-	}
-	printLog(lambda)
+	getLogger().Panicf(format, args...)
 }
 
 func Panicln(args ...interface{}) {
-	lambda := func(log Logger) {
-		log.Panicln(args...)
-	}
-	printLog(lambda)
+	getLogger().Panicln(args...)
 }
