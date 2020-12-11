@@ -20,6 +20,8 @@ const (
 	InfoV  = iota
 	WarnV  = iota
 	ErrV   = iota
+	FatalV = iota
+	PanicV = iota
 )
 
 func toEnum(s string) int {
@@ -34,6 +36,10 @@ func toEnum(s string) int {
 		return InfoV
 	case "error":
 		return ErrV
+	case "fatal":
+		return FatalV
+	case "panic":
+		return PanicV
 	default:
 		return InfoV
 	}
@@ -41,6 +47,10 @@ func toEnum(s string) int {
 
 func configurePackageLogger(log *logrus.Logger, value int) *logrus.Logger {
 	switch value {
+	case PanicV:
+		log.SetLevel(logrus.PanicLevel)
+	case FatalV:
+		log.SetLevel(logrus.FatalLevel)
 	case ErrV:
 		log.SetLevel(logrus.ErrorLevel)
 	case WarnV:
