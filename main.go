@@ -73,10 +73,15 @@ func ConfigureInternalLogger(newInternalLogger *logrus.Logger) {
 }
 
 var filelines = false
+var workingdir = ""
 
 func init() {
 	defaultLogger = logrus.New()
 	ConfigureLogger(defaultLogger)
+	wd, err := os.Getwd()
+	if err == nil {
+		workingdir = wd
+	}
 }
 
 // EnableLineNumbers log output of linenumbers as logerus fields
@@ -161,12 +166,12 @@ func getLogger() *logrus.Entry {
 	internalLogger.Debug("pkg: ", pkg)
 	if log, ok := loggers[pkg]; ok {
 		if filelines {
-			return log.WithFields(logrus.Fields{"module": pkg, "file": file, "line": line})
+			return log.WithFields(logrus.Fields{"module": pkg, "file": strings.TrimPrefix(file, workingdir), "line": line})
 		}
 		return log.WithFields(logrus.Fields{"module": pkg})
 	}
 	if filelines {
-		return defaultLogger.WithFields(logrus.Fields{"module": pkg, "file": file, "line": line})
+		return defaultLogger.WithFields(logrus.Fields{"module": pkg, "file": strings.TrimPrefix(file, workingdir), "line": line})
 	}
 	return defaultLogger.WithFields(logrus.Fields{"module": pkg})
 }
