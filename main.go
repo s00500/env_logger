@@ -72,9 +72,16 @@ func ConfigureInternalLogger(newInternalLogger *logrus.Logger) {
 	internalLogger = newInternalLogger
 }
 
+var filelines = false
+
 func init() {
 	defaultLogger = logrus.New()
 	ConfigureLogger(defaultLogger)
+}
+
+// EnableLineNumbers log output of linenumbers as logerus fields
+func EnableLineNumbers() {
+	filelines = true
 }
 
 // GetLoggerForPrefix gets the logger for a certain prefix if it has been configured
@@ -124,7 +131,7 @@ func ConfigureLogger(newdefaultLogger *logrus.Logger) {
 }
 
 // Props to https://stackoverflow.com/a/35213181 for the code
-func getPackage() string {
+func getPackage() (string, string, int) {
 
 	// we get the callers as uintptrs - but we just need 1
 	fpcs := make([]uintptr, 1)
@@ -132,27 +139,34 @@ func getPackage() string {
 	// skip 4 levels to get to the caller of whoever called getPackage()
 	n := runtime.Callers(4, fpcs)
 	if n == 0 {
-		return "" // proper error her would be better
+		return "", "", 0 // proper error her would be better
 	}
 
 	// get the info of the actual function that's in the pointer
 	fun := runtime.FuncForPC(fpcs[0] - 1)
 	if fun == nil {
-		return ""
+		return "", "", 0
 	}
 
 	name := fun.Name()
+	file, line := fun.FileLine(fpcs[0] - 1)
 	lastSlash := strings.LastIndex(name, "/") + 1
 	firstPoint := strings.Index(name[lastSlash:], ".")
 	// return its name
-	return name[0 : lastSlash+firstPoint]
+	return name[0 : lastSlash+firstPoint], file, line
 }
 
 func getLogger() *logrus.Entry {
-	pkg := getPackage()
+	pkg, file, line := getPackage()
 	internalLogger.Debug("pkg: ", pkg)
 	if log, ok := loggers[pkg]; ok {
+		if filelines {
+			return log.WithFields(logrus.Fields{"module": pkg, "file": file, "line": line})
+		}
 		return log.WithFields(logrus.Fields{"module": pkg})
+	}
+	if filelines {
+		return defaultLogger.WithFields(logrus.Fields{"module": pkg, "file": file, "line": line})
 	}
 	return defaultLogger.WithFields(logrus.Fields{"module": pkg})
 }
