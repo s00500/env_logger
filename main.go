@@ -45,7 +45,7 @@ func toEnum(s string) int {
 	}
 }
 
-func configurePackageLogger(log *logrus.Logger, value int) *logrus.Logger {
+func configurePackageLogger(log logrus.Logger, value int) *logrus.Logger {
 	switch value {
 	case PanicV:
 		log.SetLevel(logrus.PanicLevel)
@@ -64,10 +64,10 @@ func configurePackageLogger(log *logrus.Logger, value int) *logrus.Logger {
 	default:
 		log.SetLevel(logrus.InfoLevel)
 	}
-	return log
+	return &log
 }
 
-// ConfiguredefaultLogger instantiates a default logger instance
+// ConfigureInternalLogger instantiates a interal logger to debug the logger
 func ConfigureInternalLogger(newInternalLogger *logrus.Logger) {
 	internalLogger = newInternalLogger
 }
@@ -76,8 +76,9 @@ var filelines = false
 var workingdir = ""
 
 func init() {
-	defaultLogger = logrus.New()
-	ConfigureLogger(defaultLogger)
+	logger := logrus.New()
+	debugConfig, _ := os.LookupEnv("GOLANG_LOG")
+	ConfigureAllLoggers(logger, debugConfig)
 	wd, err := os.Getwd()
 	if err == nil {
 		workingdir = wd
@@ -102,13 +103,13 @@ func SetLevel(level logrus.Level) {
 	defaultLogger.SetLevel(level)
 }
 
-// ConfigureLogger takes in a prefix and a logger object and configures the logger depending on environment variables.
+// ConfigureLogger takes in a logger object and configures the logger depending on environment variables.
 // Configured based on the GOLANG_DEBUG environment variable
-func ConfigureLogger(newdefaultLogger *logrus.Logger) {
+func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	levels := make(map[string]int)
 
-	if debugRaw, ok := os.LookupEnv("GOLANG_LOG"); ok {
-		packages := strings.Split(debugRaw, ",")
+	if debugConfig != "" {
+		packages := strings.Split(debugConfig, ",")
 
 		for _, pkg := range packages {
 			// check if a package name has been specified, if not default to main
@@ -124,7 +125,8 @@ func ConfigureLogger(newdefaultLogger *logrus.Logger) {
 	}
 
 	for key, value := range levels {
-		loggers[key] = configurePackageLogger(logrus.New(), value)
+		// Try to copy default logger
+		loggers[key] = configurePackageLogger(*newdefaultLogger, value)
 	}
 
 	// configure main logger
