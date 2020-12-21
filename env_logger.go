@@ -276,7 +276,7 @@ func Fatalln(args ...interface{}) {
 }
 
 func Panic(args ...interface{}) {
-	getLogger().Fatal(args...)
+	getLogger().Panic(args...)
 }
 
 func Panicf(format string, args ...interface{}) {
