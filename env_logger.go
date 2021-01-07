@@ -287,6 +287,18 @@ func Panicln(args ...interface{}) {
 	getLogger().Panicln(args...)
 }
 
+func Log(level logrus.Level, args ...interface{}) {
+	getLogger().Log(level, args...)
+}
+
+func Logf(level logrus.Level, format string, args ...interface{}) {
+	getLogger().Logf(level, format, args...)
+}
+
+func Logln(level logrus.Level, args ...interface{}) {
+	getLogger().Logln(level, args...)
+}
+
 // ERROR Helpers
 
 // Must Checks if an error occured, otherwise panic
