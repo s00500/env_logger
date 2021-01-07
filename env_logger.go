@@ -286,3 +286,26 @@ func Panicf(format string, args ...interface{}) {
 func Panicln(args ...interface{}) {
 	getLogger().Panicln(args...)
 }
+
+// ERROR Helpers
+
+// Must Checks if an error occured, otherwise panic
+func Must(err error) {
+	if err != nil {
+		Panicf("Error on must: %v", err)
+	}
+}
+
+// Should Checks if an error occured, otherwise prints it as error
+func Should(err error) {
+	if err != nil {
+		Error(err)
+	}
+}
+
+// ShouldWarn Checks if an error occured, otherwise prints it as warning
+func ShouldWarn(err error) {
+	if err != nil {
+		Warn(err)
+	}
+}
