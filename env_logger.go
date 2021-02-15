@@ -308,6 +308,13 @@ func Must(err error) {
 	}
 }
 
+// MustFatal Checks if an error occured, otherwise stop the program
+func MustFatal(err error) {
+	if err != nil {
+		getLogger().Fatalf("Fatal Error: %v", err)
+	}
+}
+
 // Should Checks if an error occured, otherwise prints it as error
 func Should(err error) {
 	if err != nil {
