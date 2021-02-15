@@ -304,20 +304,20 @@ func Logln(level logrus.Level, args ...interface{}) {
 // Must Checks if an error occured, otherwise panic
 func Must(err error) {
 	if err != nil {
-		Panicf("Error on must: %v", err)
+		getLogger().Panicf("Error on must: %v", err)
 	}
 }
 
 // Should Checks if an error occured, otherwise prints it as error
 func Should(err error) {
 	if err != nil {
-		Error(err)
+		getLogger().Error(err)
 	}
 }
 
 // ShouldWarn Checks if an error occured, otherwise prints it as warning
 func ShouldWarn(err error) {
 	if err != nil {
-		Warn(err)
+		getLogger().Warn(err)
 	}
 }
