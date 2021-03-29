@@ -45,7 +45,7 @@ func toEnum(s string) int {
 	}
 }
 
-func configurePackageLogger(log logrus.Logger, value int) *logrus.Logger {
+func configurePackageLogger(log *logrus.Logger, value int) *logrus.Logger {
 	switch value {
 	case PanicV:
 		log.SetLevel(logrus.PanicLevel)
@@ -64,7 +64,7 @@ func configurePackageLogger(log logrus.Logger, value int) *logrus.Logger {
 	default:
 		log.SetLevel(logrus.InfoLevel)
 	}
-	return &log
+	return log
 }
 
 // ConfigureInternalLogger instantiates a interal logger to debug the logger
@@ -77,7 +77,10 @@ var workingdir = ""
 
 func init() {
 	logger := logrus.New()
-	debugConfig, _ := os.LookupEnv("GOLANG_LOG")
+	debugConfig, _ := os.LookupEnv("LOG")
+	if debugConfig == "" {
+		debugConfig, _ = os.LookupEnv("GOLANG_LOG")
+	}
 	ConfigureAllLoggers(logger, debugConfig)
 	wd, err := os.Getwd()
 	if err == nil {
@@ -91,7 +94,7 @@ func EnableLineNumbers() {
 }
 
 // GetLoggerForPrefix gets the logger for a certain prefix if it has been configured
-func GetLoggerForPrefix(prefix string) logrus.FieldLogger {
+func GetLoggerForPrefix(prefix string) *logrus.Entry {
 	if logger, ok := loggers[prefix]; ok {
 		return logger.WithFields(logrus.Fields{"module": prefix})
 	}
@@ -126,7 +129,7 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 
 	for key, value := range levels {
 		// Try to copy default logger
-		loggers[key] = configurePackageLogger(*newdefaultLogger, value)
+		loggers[key] = configurePackageLogger(newdefaultLogger, value)
 	}
 
 	// configure main logger
