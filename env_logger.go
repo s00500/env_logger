@@ -1,6 +1,7 @@
 package env_logger
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 	"strings"
@@ -9,9 +10,8 @@ import (
 )
 
 var (
-	internalLogger = logrus.New()
-	defaultLogger  *logrus.Logger
-	loggers        = make(map[string]*logrus.Logger)
+	defaultLogger *logrus.Logger
+	loggers       = make(map[string]*logrus.Logger)
 )
 
 const (
@@ -65,11 +65,6 @@ func configurePackageLogger(log *logrus.Logger, value int) *logrus.Logger {
 		log.SetLevel(logrus.InfoLevel)
 	}
 	return log
-}
-
-// ConfigureInternalLogger instantiates a interal logger to debug the logger
-func ConfigureInternalLogger(newInternalLogger *logrus.Logger) {
-	internalLogger = newInternalLogger
 }
 
 var filelines = false
@@ -129,7 +124,8 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 
 	for key, value := range levels {
 		// Try to copy default logger
-		loggers[key] = configurePackageLogger(newdefaultLogger, value)
+		// TODO: can I copy settings form the default logger here ? should I even do that ?
+		loggers[key] = configurePackageLogger(logrus.New(), value)
 	}
 
 	// configure main logger
@@ -168,15 +164,14 @@ func getPackage() (string, string, int) {
 
 func getLogger() *logrus.Entry {
 	pkg, file, line := getPackage()
-	internalLogger.Debug("pkg: ", pkg)
 	if log, ok := loggers[pkg]; ok {
 		if filelines {
-			return log.WithFields(logrus.Fields{"module": pkg, "file": strings.TrimPrefix(file, workingdir), "line": line})
+			return log.WithFields(logrus.Fields{"module": pkg, "file": fmt.Sprintf("'%s:%d'", strings.TrimPrefix(file, workingdir+"/"), line)})
 		}
 		return log.WithFields(logrus.Fields{"module": pkg})
 	}
 	if filelines {
-		return defaultLogger.WithFields(logrus.Fields{"module": pkg, "file": strings.TrimPrefix(file, workingdir), "line": line})
+		return defaultLogger.WithFields(logrus.Fields{"module": pkg, "file": fmt.Sprintf("'%s:%d'", strings.TrimPrefix(file, workingdir+"/"), line)})
 	}
 	return defaultLogger.WithFields(logrus.Fields{"module": pkg})
 }

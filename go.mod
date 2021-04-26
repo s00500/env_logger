@@ -3,6 +3,7 @@ module github.com/s00500/env_logger
 go 1.14
 
 require (
-	github.com/sirupsen/logrus v1.6.0
-	github.com/stretchr/testify v1.2.2
+	github.com/konsorten/go-windows-terminal-sequences v1.0.3 // indirect
+	github.com/sirupsen/logrus v1.8.1
+	github.com/stretchr/testify v1.7.0
 )
