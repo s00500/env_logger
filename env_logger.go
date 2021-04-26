@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"strings"
 
 	logrus "github.com/sirupsen/logrus"
@@ -68,7 +69,7 @@ func configurePackageLogger(log *logrus.Logger, value int) *logrus.Logger {
 }
 
 var filelines = false
-var workingdir = ""
+var mainModuleName = ""
 
 func init() {
 	logger := logrus.New()
@@ -77,9 +78,10 @@ func init() {
 		debugConfig, _ = os.LookupEnv("GOLANG_LOG")
 	}
 	ConfigureAllLoggers(logger, debugConfig)
-	wd, err := os.Getwd()
-	if err == nil {
-		workingdir = wd
+
+	info, ok := debug.ReadBuildInfo()
+	if ok {
+		mainModuleName = info.Path
 	}
 }
 
@@ -123,9 +125,11 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	}
 
 	for key, value := range levels {
-		// Try to copy default logger
-		// TODO: can I copy settings form the default logger here ? should I even do that ?
-		loggers[key] = configurePackageLogger(logrus.New(), value)
+		// Copy some properties of the default logger
+		pLogger := logrus.New()
+		pLogger.Out = newdefaultLogger.Out
+		pLogger.Formatter = newdefaultLogger.Formatter
+		loggers[key] = configurePackageLogger(pLogger, value)
 	}
 
 	// configure main logger
@@ -155,23 +159,42 @@ func getPackage() (string, string, int) {
 	}
 
 	name := fun.Name()
-	file, line := fun.FileLine(fpcs[0] - 1)
+	firstSlash := strings.Index(name, "/")
+	if firstSlash != -1 {
+		if strings.Contains(name[0:firstSlash], ".com") || strings.Contains(name[0:firstSlash], ".org") || strings.Contains(name[0:firstSlash], ".io") {
+			// Trim the url
+			name = name[firstSlash+1:]
+		}
+	}
+
 	lastSlash := strings.LastIndex(name, "/") + 1
 	firstPoint := strings.Index(name[lastSlash:], ".")
-	// return its name
-	return name[0 : lastSlash+firstPoint], file, line
+
+	file, line := fun.FileLine(fpcs[0] - 1)
+
+	if i := strings.Index(file, mainModuleName); i != -1 {
+		file = file[i:]
+	}
+
+	if i := strings.Index(file, "@"); i != -1 {
+		// Trim out the version info in case we run with -trimpath
+		nextSlash := strings.Index(file[i:], "/")
+		file = file[:i] + file[i+nextSlash:]
+	}
+
+	return strings.TrimPrefix(name[0:lastSlash+firstPoint], mainModuleName+"/"), strings.TrimPrefix(file, mainModuleName+"/"), line
 }
 
 func getLogger() *logrus.Entry {
 	pkg, file, line := getPackage()
 	if log, ok := loggers[pkg]; ok {
 		if filelines {
-			return log.WithFields(logrus.Fields{"module": pkg, "file": fmt.Sprintf("'%s:%d'", strings.TrimPrefix(file, workingdir+"/"), line)})
+			return log.WithFields(logrus.Fields{"module": pkg, "file": fmt.Sprintf("'%s:%d'", file, line)}) // strings.TrimPrefix(file, workingdir+"/")
 		}
 		return log.WithFields(logrus.Fields{"module": pkg})
 	}
 	if filelines {
-		return defaultLogger.WithFields(logrus.Fields{"module": pkg, "file": fmt.Sprintf("'%s:%d'", strings.TrimPrefix(file, workingdir+"/"), line)})
+		return defaultLogger.WithFields(logrus.Fields{"module": pkg, "file": fmt.Sprintf("'%s:%d'", file, line)})
 	}
 	return defaultLogger.WithFields(logrus.Fields{"module": pkg})
 }
