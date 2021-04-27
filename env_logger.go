@@ -114,7 +114,9 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 		for _, pkg := range packages {
 			// check if a package name has been specified, if not default to main
 			tmp := strings.Split(pkg, "=")
-			if len(tmp) == 1 {
+			if len(tmp) == 1 && tmp[0] == "ln" {
+				filelines = true
+			} else if len(tmp) == 1 {
 				levels["main"] = toEnum(tmp[0])
 			} else if len(tmp) == 2 {
 				levels[tmp[0]] = toEnum(tmp[1])
