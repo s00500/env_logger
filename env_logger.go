@@ -325,29 +325,33 @@ func Logln(level logrus.Level, args ...interface{}) {
 // ERROR Helpers
 
 // Must Checks if an error occured, otherwise panic
-func Must(err error) {
+func Must(err error) error {
 	if err != nil {
 		getLogger().Panicf("Error on must: %v", err)
 	}
+	return err
 }
 
 // MustFatal Checks if an error occured, otherwise stop the program
-func MustFatal(err error) {
+func MustFatal(err error) error {
 	if err != nil {
 		getLogger().Fatalf("Fatal Error: %v", err)
 	}
+	return err
 }
 
 // Should Checks if an error occured, otherwise prints it as error
-func Should(err error) {
+func Should(err error) error {
 	if err != nil {
 		getLogger().Error(err)
 	}
+	return err
 }
 
 // ShouldWarn Checks if an error occured, otherwise prints it as warning
-func ShouldWarn(err error) {
+func ShouldWarn(err error) error {
 	if err != nil {
 		getLogger().Warn(err)
 	}
+	return err
 }
