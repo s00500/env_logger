@@ -69,6 +69,7 @@ func configurePackageLogger(log *logrus.Logger, value int) *logrus.Logger {
 }
 
 var filelines = false
+var printGoRoutines = false
 var mainModuleName = ""
 
 func init() {
@@ -116,6 +117,11 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 			tmp := strings.Split(pkg, "=")
 			if len(tmp) == 1 && tmp[0] == "ln" {
 				filelines = true
+			} else if len(tmp) == 1 && tmp[0] == "gr" { // go routine loop
+				printGoRoutines = true
+			} else if len(tmp) == 1 && tmp[0] == "grl" { // go routine loop
+				printGoRoutines = true
+				go logGoRoutines()
 			} else if len(tmp) == 1 {
 				levels["main"] = toEnum(tmp[0])
 			} else if len(tmp) == 2 {
@@ -189,16 +195,23 @@ func getPackage() (string, string, int) {
 
 func getLogger() *logrus.Entry {
 	pkg, file, line := getPackage()
+
+	var logentry *logrus.Entry
 	if log, ok := loggers[pkg]; ok {
-		if filelines {
-			return log.WithFields(logrus.Fields{"module": pkg, "file": fmt.Sprintf("'%s:%d'", file, line)}) // strings.TrimPrefix(file, workingdir+"/")
-		}
-		return log.WithFields(logrus.Fields{"module": pkg})
+		logentry = log.WithFields(logrus.Fields{"module": pkg})
+	} else {
+		logentry = defaultLogger.WithFields(logrus.Fields{"module": pkg})
 	}
+
 	if filelines {
-		return defaultLogger.WithFields(logrus.Fields{"module": pkg, "file": fmt.Sprintf("'%s:%d'", file, line)})
+		logentry = logentry.WithFields(logrus.Fields{"file": fmt.Sprintf("'%s:%d'", file, line)})
 	}
-	return defaultLogger.WithFields(logrus.Fields{"module": pkg})
+
+	if printGoRoutines {
+		logentry = logentry.WithFields(logrus.Fields{"routines": runtime.NumGoroutine()})
+	}
+
+	return logentry
 }
 
 func WithField(key string, value interface{}) *logrus.Entry {
@@ -324,22 +337,18 @@ func Logln(level logrus.Level, args ...interface{}) {
 
 // ERROR Helpers
 
-// Must Checks if an error occured, otherwise panic, returns true if error is not nil
-func Must(err error) bool {
+// Must Checks if an error occured, otherwise panic
+func Must(err error) {
 	if err != nil {
 		getLogger().Panicf("Error on must: %v", err)
-		return true
 	}
-	return false
 }
 
-// MustFatal Checks if an error occured, otherwise stop the program, returns true if error is not nil
-func MustFatal(err error) bool {
+// MustFatal Checks if an error occured, otherwise stop the program
+func MustFatal(err error) {
 	if err != nil {
 		getLogger().Fatalf("Fatal Error: %v", err)
-		return true
 	}
-	return false
 }
 
 // Should Checks if an error occured, otherwise prints it as error, returns true if error is not nil
