@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/mattn/go-colorable"
 	logrus "github.com/sirupsen/logrus"
 )
 
@@ -78,6 +79,8 @@ func init() {
 	if debugConfig == "" {
 		debugConfig, _ = os.LookupEnv("GOLANG_LOG")
 	}
+
+	logger.SetOutput(colorable.NewColorableStdout()) // make default work on windows
 	ConfigureAllLoggers(logger, debugConfig)
 
 	info, ok := debug.ReadBuildInfo()
