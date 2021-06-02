@@ -7,6 +7,9 @@ This is a super simple project which aims to help out with setting up logging co
 The entire logging framework is configured via a single environment variable `LOG`. The variable is a comma delimited list
 of packages and their respective log-levels. (falling back to InfoLevel if not configured).
 
+# Windows support
+
+This logger should be fully able to work colored on windows! TTY detection may fail though, so to ensure that it does not set the environment variable *CLICOLOR_FORCE=1* in your shell.
 ## Bonus tricks
 
 Some bonus modifiers exist for the log config: 
