@@ -80,6 +80,7 @@ func init() {
 		debugConfig, _ = os.LookupEnv("GOLANG_LOG")
 	}
 
+	logger.Formatter.(*logrus.TextFormatter).EnvironmentOverrideColors = true
 	logger.SetOutput(colorable.NewColorableStdout()) // make default work on windows
 	ConfigureAllLoggers(logger, debugConfig)
 
