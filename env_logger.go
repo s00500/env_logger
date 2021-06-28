@@ -113,6 +113,7 @@ func SetLevel(level logrus.Level) {
 func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	levels := make(map[string]int)
 
+	startProfileServer := false
 	if debugConfig != "" {
 		packages := strings.Split(debugConfig, ",")
 
@@ -121,7 +122,9 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 			tmp := strings.Split(pkg, "=")
 			if len(tmp) == 1 && tmp[0] == "ln" {
 				filelines = true
-			} else if len(tmp) == 1 && tmp[0] == "gr" { // go routine loop
+			} else if len(tmp) == 1 && tmp[0] == "pp" { // pprof
+				startProfileServer = true
+			} else if len(tmp) == 1 && tmp[0] == "gr" { // go routine log
 				printGoRoutines = true
 			} else if len(tmp) == 1 && tmp[0] == "grl" { // go routine loop
 				printGoRoutines = true
@@ -149,6 +152,9 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 		defaultLogger = value
 	} else {
 		defaultLogger = newdefaultLogger
+	}
+	if startProfileServer {
+		go profileServer()
 	}
 }
 
