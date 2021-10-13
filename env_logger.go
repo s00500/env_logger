@@ -16,6 +16,9 @@ var (
 	loggers       = make(map[string]*logrus.Logger)
 )
 
+// Pass through type to not have another import in packages using this lib
+type Fields logrus.Fields
+
 const (
 	TraceV = iota
 	DebugV = iota
