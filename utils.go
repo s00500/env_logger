@@ -16,6 +16,14 @@ func Wrap(err error, msg string, args ...interface{}) error {
 	return nil
 }
 
+// Wrap an error, this is useful in combination with Should and Must
+func WrapFinal(err *error, msg string, args ...interface{}) {
+	if err != nil {
+		args = append(args, err)
+		*err = fmt.Errorf(msg+": %w", args...) // Change actual value
+	}
+}
+
 // Indent transforms the structure into json by using MarshalIndent
 func Indent(arg interface{}) string {
 	indented, _ := json.MarshalIndent(arg, "", " ")
