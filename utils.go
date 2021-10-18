@@ -18,8 +18,8 @@ func Wrap(err error, msg string, args ...interface{}) error {
 
 // Wrap an error, this is useful in combination with Should and Must
 func WrapFinal(err *error, msg string, args ...interface{}) {
-	if err != nil {
-		args = append(args, err)
+	if err != nil && *err != nil {
+		args = append(args, *err)
 		*err = fmt.Errorf(msg+": %w", args...) // Change actual value
 	}
 }
