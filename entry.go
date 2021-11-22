@@ -3,15 +3,15 @@ package env_logger
 import logrus "github.com/sirupsen/logrus"
 
 func (e *Entry) WithField(key string, value interface{}) *logrus.Entry {
-	return getLogger(nil).WithField(key, value)
+	return getLogger(e).WithField(key, value)
 }
 
 func (e *Entry) WithFields(fields logrus.Fields) *logrus.Entry {
-	return getLogger(nil).WithFields(fields)
+	return getLogger(e).WithFields(fields)
 }
 
 func (e *Entry) WithError(err error) *logrus.Entry {
-	return getLogger(nil).WithError(err)
+	return getLogger(e).WithError(err)
 }
 
 // Warn prints a warning...
