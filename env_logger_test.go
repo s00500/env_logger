@@ -10,7 +10,7 @@ import (
 )
 
 func TestPrint(t *testing.T) {
-	LogAndAssertJSON(t, func(log logrus.FieldLogger) {
+	LogAndAssertJSON(t, func(log *env_logger.Entry) {
 		log.Print("test")
 	}, func(fields logrus.Fields) {
 		assert.Equal(t, "test", fields["msg"])
@@ -19,7 +19,7 @@ func TestPrint(t *testing.T) {
 }
 
 func TestInfo(t *testing.T) {
-	LogAndAssertJSON(t, func(log logrus.FieldLogger) {
+	LogAndAssertJSON(t, func(log *env_logger.Entry) {
 		//log.Info("test")
 		env_logger.Info("test") // Still prints to our buffer
 	}, func(fields logrus.Fields) {
@@ -28,7 +28,7 @@ func TestInfo(t *testing.T) {
 	})
 }
 func TestInfoWithLines(t *testing.T) {
-	LogAndAssertJSON(t, func(log logrus.FieldLogger) {
+	LogAndAssertJSON(t, func(log *env_logger.Entry) {
 		env_logger.EnableLineNumbers()
 		env_logger.Info("test") // Still prints to our buffer
 	}, func(fields logrus.Fields) {
@@ -39,7 +39,7 @@ func TestInfoWithLines(t *testing.T) {
 }
 
 func TestWarn(t *testing.T) {
-	LogAndAssertJSON(t, func(log logrus.FieldLogger) {
+	LogAndAssertJSON(t, func(log *env_logger.Entry) {
 		env_logger.Warn("test")
 	}, func(fields logrus.Fields) {
 		assert.Equal(t, "test", fields["msg"])
@@ -59,7 +59,7 @@ func TestLog(t *testing.T) {
 }
 */
 func TestInfolnShouldAddSpacesBetweenStrings(t *testing.T) {
-	LogAndAssertJSON(t, func(log logrus.FieldLogger) {
+	LogAndAssertJSON(t, func(log *env_logger.Entry) {
 		log.Infoln("test", "test")
 	}, func(fields logrus.Fields) {
 		assert.Equal(t, "test test", fields["msg"])

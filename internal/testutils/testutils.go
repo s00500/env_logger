@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func LogAndAssertJSON(t *testing.T, log func(logrus.FieldLogger), assertions func(fields logrus.Fields)) {
+func LogAndAssertJSON(t *testing.T, log func(*Entry), assertions func(fields logrus.Fields)) {
 	var buffer bytes.Buffer
 	var fields logrus.Fields
 
@@ -32,7 +32,7 @@ func LogAndAssertJSON(t *testing.T, log func(logrus.FieldLogger), assertions fun
 	assertions(fields)
 }
 
-func LogAndAssertText(t *testing.T, log func(logrus.FieldLogger), assertions func(fields map[string]string)) {
+func LogAndAssertText(t *testing.T, log func(*Entry), assertions func(fields map[string]string)) {
 	var buffer bytes.Buffer
 
 	loggerMain := logrus.New()

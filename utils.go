@@ -24,6 +24,13 @@ func WrapFinal(err *error, msg string, args ...interface{}) {
 	}
 }
 
+// Wrap an error, this is useful in combination with Should and Must
+func PanicHandler() {
+	if r := recover(); r != nil {
+		Panic(r)
+	}
+}
+
 // Indent transforms the structure into json by using MarshalIndent
 func Indent(arg interface{}) string {
 	indented, _ := json.MarshalIndent(arg, "", " ")
