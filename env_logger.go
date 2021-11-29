@@ -135,7 +135,7 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 				printGoRoutines = true
 				go logGoRoutines()
 			} else if len(tmp) == 1 {
-				levels["main"] = toEnum(tmp[0])
+				levels["global_log"] = toEnum(tmp[0])
 			} else if len(tmp) == 2 {
 				levels[tmp[0]] = toEnum(tmp[1])
 			} else {
@@ -153,7 +153,7 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	}
 
 	// configure main logger
-	if value, ok := loggers["main"]; ok {
+	if value, ok := loggers["global_log"]; ok {
 		defaultLogger = value
 	} else {
 		defaultLogger = newdefaultLogger
