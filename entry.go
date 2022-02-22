@@ -2,16 +2,16 @@ package env_logger
 
 import logrus "github.com/sirupsen/logrus"
 
-func (e *Entry) WithField(key string, value interface{}) *logrus.Entry {
-	return getLogger(e).WithField(key, value)
+func (e *Entry) WithField(key string, value interface{}) *Entry {
+	return (*Entry)(getLogger(e).WithField(key, value))
 }
 
-func (e *Entry) WithFields(fields logrus.Fields) *logrus.Entry {
-	return getLogger(e).WithFields(fields)
+func (e *Entry) WithFields(fields logrus.Fields) *Entry {
+	return (*Entry)(getLogger(e).WithFields(fields))
 }
 
-func (e *Entry) WithError(err error) *logrus.Entry {
-	return getLogger(e).WithError(err)
+func (e *Entry) WithError(err error) *Entry {
+	return (*Entry)(getLogger(e).WithError(err))
 }
 
 // Warn prints a warning...

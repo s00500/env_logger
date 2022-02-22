@@ -233,16 +233,16 @@ func getLogger(e *Entry) *logrus.Entry {
 	return logentry
 }
 
-func WithField(key string, value interface{}) *logrus.Entry {
-	return getLogger(nil).WithField(key, value)
+func WithField(key string, value interface{}) *Entry {
+	return (*Entry)(getLogger(nil).WithField(key, value))
 }
 
-func WithFields(fields logrus.Fields) *logrus.Entry {
-	return getLogger(nil).WithFields(fields)
+func WithFields(fields logrus.Fields) *Entry {
+	return (*Entry)(getLogger(nil).WithFields(fields))
 }
 
-func WithError(err error) *logrus.Entry {
-	return getLogger(nil).WithError(err)
+func WithError(err error) *Entry {
+	return (*Entry)(getLogger(nil).WithError(err))
 }
 
 // Warn prints a warning...
