@@ -16,12 +16,20 @@ func Wrap(err error, msg string, args ...interface{}) error {
 	return nil
 }
 
+func (e *Entry) Wrap(err error, msg string, args ...interface{}) error {
+	return Wrap(err, msg, args...)
+}
+
 // Wrap an error, this is useful in combination with Should and Must
 func WrapFinal(err *error, msg string, args ...interface{}) {
 	if err != nil && *err != nil {
 		args = append(args, *err)
 		*err = fmt.Errorf(msg+": %w", args...) // Change actual value
 	}
+}
+
+func (e *Entry) WrapFinal(err *error, msg string, args ...interface{}) {
+	WrapFinal(err, msg, args...)
 }
 
 // Wrap an error, this is useful in combination with Should and Must
@@ -31,10 +39,20 @@ func PanicHandler() {
 	}
 }
 
+func (e *Entry) PanicHandler() {
+	if r := recover(); r != nil {
+		e.Panic(r)
+	}
+}
+
 // Indent transforms the structure into json by using MarshalIndent
 func Indent(arg interface{}) string {
 	indented, _ := json.MarshalIndent(arg, "", " ")
 	return string(indented)
+}
+
+func (e *Entry) Indent(arg interface{}) string {
+	return Indent(arg)
 }
 
 func logGoRoutines() {
