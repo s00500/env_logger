@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 
 	"github.com/mattn/go-colorable"
 	logrus "github.com/sirupsen/logrus"
@@ -113,6 +114,8 @@ func SetLevel(level logrus.Level) {
 	defaultLogger.SetLevel(level)
 }
 
+var startServer sync.Once
+
 // ConfigureLogger takes in a logger object and configures the logger depending on environment variables.
 // Configured based on the GOLANG_DEBUG environment variable
 func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
@@ -159,7 +162,9 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 		defaultLogger = newdefaultLogger
 	}
 	if startProfileServer {
-		go profileServer()
+		startServer.Do(func() {
+			go profileServer()
+		})
 	}
 }
 
