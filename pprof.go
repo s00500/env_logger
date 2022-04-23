@@ -5,8 +5,12 @@ package env_logger
 
 import (
 	"fmt"
+	"github.com/mattn/go-colorable"
+	logrus "github.com/sirupsen/logrus"
+	"io/ioutil"
 	"net/http"
 	_ "net/http/pprof"
+	"strings"
 )
 
 func init() {
@@ -22,10 +26,11 @@ func profileServer() {
 		// function to allow dynamicaly setting the logstring
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
-			ServeJSON(w, r, "error", err.Error(), http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "Error: "+err.Error())
 			return
 		}
-		debugConfig := string(strings.TrimSpace(body))
+		debugConfig := strings.TrimSpace(string(body))
 
 		logger := logrus.New()
 
