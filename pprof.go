@@ -38,7 +38,7 @@ func profileServer() {
 		logger.SetOutput(colorable.NewColorableStdout()) // make default work on windows
 		ConfigureAllLoggers(logger, debugConfig)
 
-		fmt.Fprintf(w, "New log config: ", debugConfig)
+		fmt.Fprintf(w, "New log config: %s", debugConfig)
 	})
 	Error(http.ListenAndServe(":11111", nil))
 }
