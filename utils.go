@@ -1,6 +1,7 @@
 package env_logger
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"runtime"
@@ -55,9 +56,14 @@ func (e *Entry) Indent(arg interface{}) string {
 	return Indent(arg)
 }
 
-func logGoRoutines() {
+func logGoRoutines(ctx context.Context) {
+	t := time.NewTicker(time.Second)
 	for {
-		time.Sleep(time.Second)
-		Info("Routines: ", runtime.NumGoroutine())
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			Info("Routines: ", runtime.NumGoroutine())
+		}
 	}
 }

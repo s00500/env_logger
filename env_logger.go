@@ -1,6 +1,7 @@
 package env_logger
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime"
@@ -115,11 +116,20 @@ func SetLevel(level logrus.Level) {
 }
 
 var startServer sync.Once
+var cancelFunc *context.CancelFunc
 
 // ConfigureLogger takes in a logger object and configures the logger depending on environment variables.
 // Configured based on the GOLANG_DEBUG environment variable
 func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	levels := make(map[string]int)
+
+	if cancelFunc != nil {
+		(*cancelFunc)()
+	}
+
+	// reset all
+	printGoRoutines = false
+	filelines = false
 
 	startProfileServer := false
 	if debugConfig != "" {
@@ -136,7 +146,9 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 				printGoRoutines = true
 			} else if len(tmp) == 1 && tmp[0] == "grl" { // go routine loop
 				printGoRoutines = true
-				go logGoRoutines()
+				ctx, cancel := context.WithCancel(context.Background())
+				cancelFunc = &cancel
+				go logGoRoutines(ctx)
 			} else if len(tmp) == 1 {
 				levels["global_log"] = toEnum(tmp[0])
 			} else if len(tmp) == 2 {
