@@ -17,7 +17,7 @@ func init() {
 
 }
 
-func profileServer() {
+func profileServer(port uint16) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "")
 	})
@@ -40,5 +40,6 @@ func profileServer() {
 
 		fmt.Fprintf(w, "New log config: %s", debugConfig)
 	})
-	Error(http.ListenAndServe(":11111", nil))
+	Warnf("profileserver startet on port %d", port)
+	Error(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
 }

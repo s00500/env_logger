@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -132,6 +133,7 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	filelines = false
 
 	startProfileServer := false
+	profileServerPort := uint16(11111)
 	if debugConfig != "" {
 		packages := strings.Split(debugConfig, ",")
 
@@ -142,6 +144,10 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 				filelines = true
 			} else if len(tmp) == 1 && tmp[0] == "pp" { // pprof
 				startProfileServer = true
+			} else if len(tmp) == 2 && tmp[0] == "ppport" { // pprof port
+				if val, err := strconv.Atoi(tmp[2]); err != nil {
+					profileServerPort = uint16(val)
+				}
 			} else if len(tmp) == 1 && tmp[0] == "gr" { // go routine log
 				printGoRoutines = true
 			} else if len(tmp) == 1 && tmp[0] == "grl" { // go routine loop
@@ -175,7 +181,7 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	}
 	if startProfileServer {
 		startServer.Do(func() {
-			go profileServer()
+			go profileServer(profileServerPort)
 		})
 	}
 }
