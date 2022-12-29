@@ -145,7 +145,7 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 			} else if len(tmp) == 1 && tmp[0] == "pp" { // pprof
 				startProfileServer = true
 			} else if len(tmp) == 2 && tmp[0] == "ppport" { // pprof port
-				if val, err := strconv.Atoi(tmp[2]); err != nil {
+				if val, err := strconv.Atoi(tmp[2]); err == nil {
 					profileServerPort = uint16(val)
 				}
 			} else if len(tmp) == 1 && tmp[0] == "gr" { // go routine log
