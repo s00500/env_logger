@@ -24,7 +24,7 @@ Some bonus modifiers exist for the log config:
 - **log.Should**, **log.ShouldWarn** if the passed error is not nul just log it, returns true if error has been printed
 - **log.Wrap** can be used with Should and must functions to provide additional error information (eg: log.Should(log.Wrap(err, "on testing %s", somedata)))
 - **log.Indent** can be used to prety print the public fields of a structure (eg: log.Info(log.Indent(myStructure)))
-- **log.Time and log.TimeEnd** can be used to quickly measure the time between 2 places with a key, similar to js. this does not log on its own, use with one of the standard log functions (just like .Indent above)
+- **log.Timer and log.TimerEnd** can be used to quickly measure the time between 2 places with a key, similar to js. this does not log on its own, use with one of the standard log functions (just like .Indent above)
 
 ## Examples
 
