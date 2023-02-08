@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 
+	"sync/atomic"
+
 	"github.com/mattn/go-colorable"
 	logrus "github.com/sirupsen/logrus"
 )
@@ -87,7 +89,7 @@ func init() {
 	if debugConfig == "" {
 		debugConfig, _ = os.LookupEnv("GOLANG_LOG")
 	}
-
+	//logger.Formatter = &textformatter.TextFormatter{}
 	logger.Formatter.(*logrus.TextFormatter).EnvironmentOverrideColors = true
 	logger.SetOutput(colorable.NewColorableStdout()) // make default work on windows
 	ConfigureAllLoggers(logger, debugConfig)
@@ -119,9 +121,12 @@ func SetLevel(level logrus.Level) {
 var startServer sync.Once
 var cancelFunc *context.CancelFunc
 
+var noCustomizations atomic.Bool
+
 // ConfigureLogger takes in a logger object and configures the logger depending on environment variables.
 // Configured based on the GOLANG_DEBUG environment variable
 func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
+	noCustomizations.Store(debugConfig == "")
 	levels := make(map[string]int)
 
 	if cancelFunc != nil {
@@ -294,26 +299,44 @@ func Infof(format string, args ...interface{}) {
 }
 
 func Trace(args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(nil).Trace(args...)
 }
 
 func Traceln(args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(nil).Traceln(args...)
 }
 
 func Tracef(format string, args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(nil).Tracef(format, args...)
 }
 
 func Debug(args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(nil).Debug(args...)
 }
 
 func Debugln(args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(nil).Debugln(args...)
 }
 
 func Debugf(format string, args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(nil).Debugf(format, args...)
 }
 

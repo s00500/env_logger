@@ -40,30 +40,51 @@ func (e *Entry) Infof(format string, args ...interface{}) {
 }
 
 func (e *Entry) Trace(args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(e).Trace(args...)
 }
 
 func (e *Entry) Traceln(args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(e).Traceln(args...)
 }
 
 func (e *Entry) Tracef(format string, args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(e).Tracef(format, args...)
 }
 
 func (e *Entry) Debug(args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(e).Debug(args...)
 }
 
 func (e *Entry) Debugln(args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(e).Debugln(args...)
 }
 
 func (e *Entry) Debugf(format string, args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(e).Debugf(format, args...)
 }
 
 func (e *Entry) Print(args ...interface{}) {
+	if noCustomizations.Load() {
+		return
+	}
 	getLogger(e).Print(args...)
 }
 
