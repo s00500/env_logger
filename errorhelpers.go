@@ -23,6 +23,15 @@ func Should(err error) bool {
 	return false
 }
 
+// Should Checks if an error occured, otherwise prints it as error, returns true if error is not nil
+func ShouldWrap(err error, msg string, args ...interface{}) bool {
+	if err != nil {
+		getLogger(nil).Error(Wrap(err, msg, args...))
+		return true
+	}
+	return false
+}
+
 // ShouldWarn Checks if an error occured, otherwise prints it as warning, returns true if error is not nil
 func ShouldWarn(err error) bool {
 	if err != nil {
@@ -44,6 +53,15 @@ func (e *Entry) MustFatal(err error) {
 	if err != nil {
 		getLogger(e).Fatalf("Fatal Error: %v", err)
 	}
+}
+
+// ShouldWrap Checks if an error occured, otherwise prints it as error, returns true if error is not nil
+func (e *Entry) ShouldWrap(err error, msg string, args ...interface{}) bool {
+	if err != nil {
+		getLogger(e).Error(Wrap(err, msg, args...))
+		return true
+	}
+	return false
 }
 
 // Should Checks if an error occured, otherwise prints it as error, returns true if error is not nil
