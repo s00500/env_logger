@@ -191,6 +191,15 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	}
 }
 
+func AutoStartProfileServer(port uint16) {
+	if port == 0 {
+		port = 11111
+	}
+	startServer.Do(func() {
+		go profileServer(port)
+	})
+}
+
 // Props to https://stackoverflow.com/a/35213181 for the code
 func getPackage() (string, string, int) {
 
