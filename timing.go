@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-var timers map[string]time.Time
+var timers map[string]time.Time = make(map[string]time.Time)
 var timersMu sync.Mutex
 
 func Timer(idkey string) string {
