@@ -35,5 +35,5 @@ func (e *Entry) Timer(idkey string) string {
 }
 
 func (e *Entry) TimerEnd(idkey string) string {
-	return Timer(idkey)
+	return TimerEnd(idkey)
 }
