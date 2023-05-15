@@ -16,7 +16,9 @@ Some bonus modifiers exist for the log config:
 - **ln** enables printing of line numbers
 - **gr** adds number of goroutines to each log statement
 - **grl** adds number of goroutines to each log statement and starts a loop printing the number of routines every second
-
+- **pp** enables pprof and dynamic log config via http requests on 11111, port can be changed with ppport=<port> (all of this requires the package to be built with -tags logpprof). The endpoint for the logconfig is POST /logstring. Send the new logstring as body
+- **mut=10** allows to set runtime.SetMutexProfileFraction(val)
+- **blk=10** allows to set runtime.SetBlockProfileFraction(val)
 
 ## Bonus functions
 

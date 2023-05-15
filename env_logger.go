@@ -147,6 +147,14 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 			tmp := strings.Split(pkg, "=")
 			if len(tmp) == 1 && tmp[0] == "ln" {
 				filelines = true
+			} else if len(tmp) == 2 && tmp[0] == "mut" { // mut=10 to set it up
+				if val, err := strconv.Atoi(tmp[1]); err == nil {
+					runtime.SetMutexProfileFraction(val)
+				}
+			} else if len(tmp) == 2 && tmp[0] == "blk" { // blk=10 to set blockProfile
+				if val, err := strconv.Atoi(tmp[1]); err == nil {
+					runtime.SetBlockProfileRate(val)
+				}
 			} else if len(tmp) == 1 && tmp[0] == "pp" { // pprof
 				startProfileServer = true
 			} else if len(tmp) == 2 && tmp[0] == "ppport" { // pprof port
