@@ -31,12 +31,7 @@ func profileServer(port uint16) {
 			return
 		}
 		debugConfig := strings.TrimSpace(string(body))
-
-		logger := logrus.New()
-
-		logger.Formatter.(*logrus.TextFormatter).EnvironmentOverrideColors = true
-		logger.SetOutput(colorable.NewColorableStdout()) // make default work on windows
-		ConfigureAllLoggers(logger, debugConfig)
+		SetGlobalDebugConfig(debugConfig)
 
 		fmt.Fprintf(w, "New log config: %s", debugConfig)
 	})

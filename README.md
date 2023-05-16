@@ -29,6 +29,11 @@ Some bonus modifiers exist for the log config:
 - **log.Indent** can be used to prety print the public fields of a structure (eg: log.Info(log.Indent(myStructure)))
 - **log.Timer and log.TimerEnd** can be used to quickly measure the time between 2 places with a key, similar to js. this does not log on its own, use with one of the standard log functions (just like .Indent above)
 
+## Dynamic log config
+If pp is active and tags logpprof have been set use this command to change the logconfig dynamically
+
+`curl -X POST -d 'grl' http://localhost:11111/logstring`
+
 ## Examples
 
 ``` shell
