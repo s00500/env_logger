@@ -5,8 +5,6 @@ package env_logger
 
 import (
 	"fmt"
-	"github.com/mattn/go-colorable"
-	logrus "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
 	_ "net/http/pprof"
