@@ -30,6 +30,19 @@ func TimerEnd(idkey string) string {
 	return "unknown timer"
 }
 
+// Print time since the last call to the Time function with the same name
+func TimerEndValue(idkey string) (time.Duration, error) {
+	timersMu.Lock()
+	defer timersMu.Unlock()
+	if t, ok := timers[idkey]; ok {
+		res := time.Since(t)
+		delete(timers, idkey)
+		return res, nil
+	}
+
+	return 0, fmt.Errorf("unknown timer")
+}
+
 func (e *Entry) Timer(idkey string) string {
 	return Timer(idkey)
 }
