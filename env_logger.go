@@ -16,10 +16,14 @@ import (
 	logrus "github.com/sirupsen/logrus"
 )
 
-var (
+// loggerSet is an immutable snapshot of the active logger configuration.
+// Published atomically via activeSet so the hot path is a single atomic load.
+type loggerSet struct {
 	defaultLogger *logrus.Logger
-	loggers       = make(map[string]*logrus.Logger)
-)
+	loggers       map[string]*logrus.Logger
+}
+
+var activeSet atomic.Pointer[loggerSet]
 
 // Pass through type to not have another import in packages using this lib
 type Fields logrus.Fields
@@ -79,9 +83,11 @@ func configurePackageLogger(log *logrus.Logger, value int) *logrus.Logger {
 	return log
 }
 
-var filelines = false
-var printGoRoutines = false
-var mainModuleName = ""
+var (
+	filelines       atomic.Bool
+	printGoRoutines atomic.Bool
+	mainModuleName  string // written only from init(), then read-only
+)
 
 func init() {
 	logger := logrus.New()
@@ -102,40 +108,51 @@ func init() {
 
 // EnableLineNumbers log output of linenumbers as logerus fields
 func EnableLineNumbers() {
-	filelines = true
+	filelines.Store(true)
 }
 
 // GetLoggerForPrefix gets the logger for a certain prefix if it has been configured
 func GetLoggerForPrefix(prefix string) *Entry {
-	if logger, ok := loggers[prefix]; ok {
+	set := activeSet.Load()
+	if logger, ok := set.loggers[prefix]; ok {
 		return (*Entry)(logger.WithFields(logrus.Fields{"module": prefix}))
 	}
-	return (*Entry)((defaultLogger.WithFields(logrus.Fields{"module": prefix})))
+	return (*Entry)(set.defaultLogger.WithFields(logrus.Fields{"module": prefix}))
 }
 
 // SetLevel sets the default loggers level
 func SetLevel(level logrus.Level) {
-	defaultLogger.SetLevel(level)
+	activeSet.Load().defaultLogger.SetLevel(level)
 }
 
-var startServer sync.Once
-var cancelFunc *context.CancelFunc
+var (
+	startServer sync.Once
+
+	// configMu serializes ConfigureAllLoggers calls (parsing the debug string,
+	// resetting state, swapping the snapshot). Hot-path readers do not take it.
+	configMu   sync.Mutex
+	cancelFunc context.CancelFunc // guarded by configMu
+)
 
 var noCustomizations atomic.Bool
 
 // ConfigureLogger takes in a logger object and configures the logger depending on environment variables.
 // Configured based on the GOLANG_DEBUG environment variable
 func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
+	configMu.Lock()
+	defer configMu.Unlock()
+
 	noCustomizations.Store(debugConfig == "")
 	levels := make(map[string]int)
 
 	if cancelFunc != nil {
-		(*cancelFunc)()
+		cancelFunc()
+		cancelFunc = nil
 	}
 
 	// reset all
-	printGoRoutines = false
-	filelines = false
+	printGoRoutines.Store(false)
+	filelines.Store(false)
 
 	startProfileServer := false
 	profileServerPort := uint16(11111)
@@ -146,7 +163,7 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 			// check if a package name has been specified, if not default to main
 			tmp := strings.Split(pkg, "=")
 			if len(tmp) == 1 && tmp[0] == "ln" {
-				filelines = true
+				filelines.Store(true)
 			} else if len(tmp) == 2 && tmp[0] == "mut" { // mut=10 to set it up
 				if val, err := strconv.Atoi(tmp[1]); err == nil {
 					runtime.SetMutexProfileFraction(val)
@@ -162,11 +179,11 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 					profileServerPort = uint16(val)
 				}
 			} else if len(tmp) == 1 && tmp[0] == "gr" { // go routine log
-				printGoRoutines = true
+				printGoRoutines.Store(true)
 			} else if len(tmp) == 1 && tmp[0] == "grl" { // go routine loop
-				printGoRoutines = true
+				printGoRoutines.Store(true)
 				ctx, cancel := context.WithCancel(context.Background())
-				cancelFunc = &cancel
+				cancelFunc = cancel
 				go logGoRoutines(ctx)
 			} else if len(tmp) == 1 {
 				levels["global_log"] = toEnum(tmp[0])
@@ -178,20 +195,28 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 		}
 	}
 
+	newLoggers := make(map[string]*logrus.Logger, len(levels))
 	for key, value := range levels {
 		// Copy some properties of the default logger
 		pLogger := logrus.New()
 		pLogger.Out = newdefaultLogger.Out
 		pLogger.Formatter = newdefaultLogger.Formatter
-		loggers[key] = configurePackageLogger(pLogger, value)
+		newLoggers[key] = configurePackageLogger(pLogger, value)
 	}
 
 	// configure main logger
-	if value, ok := loggers["global_log"]; ok {
-		defaultLogger = value
-	} else {
-		defaultLogger = newdefaultLogger
+	newDefault := newdefaultLogger
+	if value, ok := newLoggers["global_log"]; ok {
+		newDefault = value
 	}
+
+	// Publish the new snapshot atomically. Hot-path readers see either the
+	// previous fully-built set or the new fully-built set, never a partial map.
+	activeSet.Store(&loggerSet{
+		defaultLogger: newDefault,
+		loggers:       newLoggers,
+	})
+
 	if startProfileServer {
 		startServer.Do(func() {
 			go profileServer(profileServerPort)
@@ -208,20 +233,40 @@ func AutoStartProfileServer(port uint16) {
 	})
 }
 
+// frameInfo is the cached result of resolving a PC to a (pkg, file, line).
+// The values are deterministic per PC (mainModuleName is set once in init),
+// so we can cache and skip the FuncForPC + string surgery on every log call.
+type frameInfo struct {
+	pkg  string
+	file string
+	line int
+}
+
+// frameCache maps PC (uintptr) -> frameInfo. sync.Map fits the access pattern
+// well: writes only happen on first observation of each call site, and reads
+// vastly outnumber writes thereafter.
+var frameCache sync.Map
+
 // Props to https://stackoverflow.com/a/35213181 for the code
 func getPackage() (string, string, int) {
 
-	// we get the callers as uintptrs - but we just need 1
-	fpcs := make([]uintptr, 1)
+	// Stack-allocated buffer; avoids a heap allocation per log call.
+	var fpcs [1]uintptr
 
 	// skip 4 levels to get to the caller of whoever called getPackage()
-	n := runtime.Callers(4, fpcs)
+	n := runtime.Callers(4, fpcs[:])
 	if n == 0 {
 		return "", "", 0 // proper error her would be better
 	}
 
+	pc := fpcs[0]
+	if v, ok := frameCache.Load(pc); ok {
+		fi := v.(frameInfo)
+		return fi.pkg, fi.file, fi.line
+	}
+
 	// get the info of the actual function that's in the pointer
-	fun := runtime.FuncForPC(fpcs[0] - 1)
+	fun := runtime.FuncForPC(pc - 1)
 	if fun == nil {
 		return "", "", 0
 	}
@@ -238,7 +283,7 @@ func getPackage() (string, string, int) {
 	lastSlash := strings.LastIndex(name, "/") + 1
 	firstPoint := strings.Index(name[lastSlash:], ".")
 
-	file, line := fun.FileLine(fpcs[0] - 1)
+	file, line := fun.FileLine(pc - 1)
 
 	if i := strings.Index(file, mainModuleName); i != -1 {
 		file = file[i:]
@@ -250,28 +295,35 @@ func getPackage() (string, string, int) {
 		file = file[:i] + file[i+nextSlash:]
 	}
 
-	return strings.TrimPrefix(name[0:lastSlash+firstPoint], mainModuleName+"/"), strings.TrimPrefix(file, mainModuleName+"/"), line
+	pkg := strings.TrimPrefix(name[0:lastSlash+firstPoint], mainModuleName+"/")
+	file = strings.TrimPrefix(file, mainModuleName+"/")
+
+	frameCache.Store(pc, frameInfo{pkg: pkg, file: file, line: line})
+	return pkg, file, line
 }
 
 func getLogger(e *Entry) *logrus.Entry {
+	// One atomic load gives us a consistent (defaultLogger, loggers) view for
+	// the duration of this call, even if ConfigureAllLoggers swaps mid-flight.
+	set := activeSet.Load()
 	pkg, file, line := getPackage()
 
 	var logentry *logrus.Entry
 	if e != nil {
 		logentry = (*logrus.Entry)(e)
 	} else {
-		if log, ok := loggers[pkg]; ok {
+		if log, ok := set.loggers[pkg]; ok {
 			logentry = log.WithFields(logrus.Fields{"module": pkg})
 		} else {
-			logentry = defaultLogger.WithFields(logrus.Fields{"module": pkg})
+			logentry = set.defaultLogger.WithFields(logrus.Fields{"module": pkg})
 		}
 	}
 
-	if filelines {
+	if filelines.Load() {
 		logentry = logentry.WithFields(logrus.Fields{"file": fmt.Sprintf("'%s:%d'", file, line)})
 	}
 
-	if printGoRoutines {
+	if printGoRoutines.Load() {
 		logentry = logentry.WithFields(logrus.Fields{"routines": runtime.NumGoroutine()})
 	}
 

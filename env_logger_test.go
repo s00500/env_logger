@@ -1,6 +1,7 @@
 package env_logger_test
 
 import (
+	"sync"
 	"testing"
 
 	env_logger "github.com/s00500/env_logger"
@@ -64,6 +65,48 @@ func TestInfolnShouldAddSpacesBetweenStrings(t *testing.T) {
 	}, func(fields logrus.Fields) {
 		assert.Equal(t, "test test", fields["msg"])
 	})
+}
+
+// TestConcurrentReconfigureRace exercises the path where /logstring (or any
+// runtime caller) reconfigures the loggers while other goroutines are
+// actively logging. Must be run with -race to be meaningful.
+func TestConcurrentReconfigureRace(t *testing.T) {
+	logger := logrus.New()
+	env_logger.ConfigureAllLoggers(logger, "")
+
+	const writers = 8
+	const reconfigs = 50
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					env_logger.Info("hello")
+					env_logger.GetLoggerForPrefix("pkg").Warn("hi")
+				}
+			}
+		}()
+	}
+
+	for i := 0; i < reconfigs; i++ {
+		cfg := "info"
+		if i%2 == 0 {
+			cfg = "debug,ln,pkg=warn"
+		}
+		env_logger.ConfigureAllLoggers(logrus.New(), cfg)
+	}
+
+	close(stop)
+	wg.Wait()
+	env_logger.ConfigureAllLoggers(logger, "")
 }
 
 /*
