@@ -21,6 +21,43 @@ import (
 type loggerSet struct {
 	defaultLogger *logrus.Logger
 	loggers       map[string]*logrus.Logger
+	// maxLevel is the most permissive (highest numeric) level across the
+	// default logger and every per-package logger. Used as a cheap gate so
+	// a Debug call under LOG=info can return without resolving the caller
+	// frame at all.
+	maxLevel logrus.Level
+	// moduleEntries caches the *logrus.Entry produced by
+	// `logger.WithFields({"module": pkg})` keyed by pkg, so repeated log
+	// calls from the same package reuse a single entry instead of
+	// allocating a Fields map + Entry on every emit. The cache lives on
+	// the snapshot; a reconfigure swaps in a fresh empty cache and the old
+	// one is GC'd along with the old set.
+	moduleEntries sync.Map // key: string (pkg), value: *logrus.Entry
+}
+
+// moduleEntry returns the cached module-decorated entry for pkg, building it
+// on first observation. Safe for concurrent callers thanks to sync.Map's
+// LoadOrStore — duplicate work on a race is harmless and discarded.
+func (s *loggerSet) moduleEntry(pkg string) *logrus.Entry {
+	if cached, ok := s.moduleEntries.Load(pkg); ok {
+		return cached.(*logrus.Entry)
+	}
+	chosen := s.defaultLogger
+	if log, ok := s.loggers[pkg]; ok {
+		chosen = log
+	}
+	entry := chosen.WithFields(logrus.Fields{"module": pkg})
+	actual, _ := s.moduleEntries.LoadOrStore(pkg, entry)
+	return actual.(*logrus.Entry)
+}
+
+// loggerForPkg returns the underlying *logrus.Logger that handles pkg.
+// Used for the IsLevelEnabled gate before deciding to fetch the cached entry.
+func (s *loggerSet) loggerForPkg(pkg string) *logrus.Logger {
+	if log, ok := s.loggers[pkg]; ok {
+		return log
+	}
+	return s.defaultLogger
 }
 
 var activeSet atomic.Pointer[loggerSet]
@@ -113,11 +150,7 @@ func EnableLineNumbers() {
 
 // GetLoggerForPrefix gets the logger for a certain prefix if it has been configured
 func GetLoggerForPrefix(prefix string) *Entry {
-	set := activeSet.Load()
-	if logger, ok := set.loggers[prefix]; ok {
-		return (*Entry)(logger.WithFields(logrus.Fields{"module": prefix}))
-	}
-	return (*Entry)(set.defaultLogger.WithFields(logrus.Fields{"module": prefix}))
+	return (*Entry)(activeSet.Load().moduleEntry(prefix))
 }
 
 // SetLevel sets the default loggers level
@@ -134,15 +167,12 @@ var (
 	cancelFunc context.CancelFunc // guarded by configMu
 )
 
-var noCustomizations atomic.Bool
-
 // ConfigureLogger takes in a logger object and configures the logger depending on environment variables.
 // Configured based on the GOLANG_DEBUG environment variable
 func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	noCustomizations.Store(debugConfig == "")
 	levels := make(map[string]int)
 
 	if cancelFunc != nil {
@@ -210,11 +240,21 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 		newDefault = value
 	}
 
+	// Compute the most permissive level so the hot path can short-circuit
+	// without touching runtime.Callers when nothing wants this verbosity.
+	maxLevel := newDefault.GetLevel()
+	for _, l := range newLoggers {
+		if lvl := l.GetLevel(); lvl > maxLevel {
+			maxLevel = lvl
+		}
+	}
+
 	// Publish the new snapshot atomically. Hot-path readers see either the
 	// previous fully-built set or the new fully-built set, never a partial map.
 	activeSet.Store(&loggerSet{
 		defaultLogger: newDefault,
 		loggers:       newLoggers,
+		maxLevel:      maxLevel,
 	})
 
 	if startProfileServer {
@@ -312,11 +352,7 @@ func getLogger(e *Entry) *logrus.Entry {
 	if e != nil {
 		logentry = (*logrus.Entry)(e)
 	} else {
-		if log, ok := set.loggers[pkg]; ok {
-			logentry = log.WithFields(logrus.Fields{"module": pkg})
-		} else {
-			logentry = set.defaultLogger.WithFields(logrus.Fields{"module": pkg})
-		}
+		logentry = set.moduleEntry(pkg)
 	}
 
 	if filelines.Load() {
@@ -327,6 +363,62 @@ func getLogger(e *Entry) *logrus.Entry {
 		logentry = logentry.WithFields(logrus.Fields{"routines": runtime.NumGoroutine()})
 	}
 
+	return logentry
+}
+
+// getLoggerIfLevel is like getLogger but returns nil when no logger in the
+// active snapshot would accept the given level — letting callers skip the
+// whole Log call (no runtime.Callers, no map lookup, no allocation).
+//
+// MUST NOT be used for Fatal or Panic levels: those have side effects
+// (os.Exit / panic) that callers expect to fire even when the message is
+// filtered.
+func getLoggerIfLevel(e *Entry, level logrus.Level) *logrus.Entry {
+	set := activeSet.Load()
+	wantFile := filelines.Load()
+	wantRoutines := printGoRoutines.Load()
+
+	if e != nil {
+		// Pre-existing entry: gate on its own logger's level.
+		if !(*logrus.Entry)(e).Logger.IsLevelEnabled(level) {
+			return nil
+		}
+		logentry := (*logrus.Entry)(e)
+		// Skip caller resolution entirely if no decoration is needed.
+		if !wantFile && !wantRoutines {
+			return logentry
+		}
+		_, file, line := getPackage()
+		if wantFile {
+			logentry = logentry.WithFields(logrus.Fields{"file": fmt.Sprintf("'%s:%d'", file, line)})
+		}
+		if wantRoutines {
+			logentry = logentry.WithFields(logrus.Fields{"routines": runtime.NumGoroutine()})
+		}
+		return logentry
+	}
+
+	// e == nil path. Global gate: if not even the most permissive logger
+	// wants this level, drop now — before resolving the caller frame.
+	if level > set.maxLevel {
+		return nil
+	}
+
+	pkg, file, line := getPackage()
+
+	// Per-package gate: the global gate above only proved *some* logger
+	// wants this level; the one for *this* package might still reject it.
+	if !set.loggerForPkg(pkg).IsLevelEnabled(level) {
+		return nil
+	}
+	logentry := set.moduleEntry(pkg)
+
+	if wantFile {
+		logentry = logentry.WithFields(logrus.Fields{"file": fmt.Sprintf("'%s:%d'", file, line)})
+	}
+	if wantRoutines {
+		logentry = logentry.WithFields(logrus.Fields{"routines": runtime.NumGoroutine()})
+	}
 	return logentry
 }
 
@@ -344,95 +436,116 @@ func WithError(err error) *Entry {
 
 // Warn prints a warning...
 func Warn(args ...interface{}) {
-	getLogger(nil).Warn(args...)
+	if e := getLoggerIfLevel(nil, logrus.WarnLevel); e != nil {
+		e.Warn(args...)
+	}
 }
 
 func Warnln(args ...interface{}) {
-	getLogger(nil).Warnln(args...)
+	if e := getLoggerIfLevel(nil, logrus.WarnLevel); e != nil {
+		e.Warnln(args...)
+	}
 }
 
 func Warnf(format string, args ...interface{}) {
-	getLogger(nil).Warnf(format, args...)
+	if e := getLoggerIfLevel(nil, logrus.WarnLevel); e != nil {
+		e.Warnf(format, args...)
+	}
 }
 
 func Info(args ...interface{}) {
-	getLogger(nil).Info(args...)
+	if e := getLoggerIfLevel(nil, logrus.InfoLevel); e != nil {
+		e.Info(args...)
+	}
 }
 
 func Infoln(args ...interface{}) {
-	getLogger(nil).Infoln(args...)
+	if e := getLoggerIfLevel(nil, logrus.InfoLevel); e != nil {
+		e.Infoln(args...)
+	}
 }
 
 func Infof(format string, args ...interface{}) {
-	getLogger(nil).Infof(format, args...)
+	if e := getLoggerIfLevel(nil, logrus.InfoLevel); e != nil {
+		e.Infof(format, args...)
+	}
 }
 
 func Trace(args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if e := getLoggerIfLevel(nil, logrus.TraceLevel); e != nil {
+		e.Trace(args...)
 	}
-	getLogger(nil).Trace(args...)
 }
 
 func Traceln(args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if e := getLoggerIfLevel(nil, logrus.TraceLevel); e != nil {
+		e.Traceln(args...)
 	}
-	getLogger(nil).Traceln(args...)
 }
 
 func Tracef(format string, args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if e := getLoggerIfLevel(nil, logrus.TraceLevel); e != nil {
+		e.Tracef(format, args...)
 	}
-	getLogger(nil).Tracef(format, args...)
 }
 
 func Debug(args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if e := getLoggerIfLevel(nil, logrus.DebugLevel); e != nil {
+		e.Debug(args...)
 	}
-	getLogger(nil).Debug(args...)
 }
 
 func Debugln(args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if e := getLoggerIfLevel(nil, logrus.DebugLevel); e != nil {
+		e.Debugln(args...)
 	}
-	getLogger(nil).Debugln(args...)
 }
 
 func Debugf(format string, args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if e := getLoggerIfLevel(nil, logrus.DebugLevel); e != nil {
+		e.Debugf(format, args...)
 	}
-	getLogger(nil).Debugf(format, args...)
 }
 
+// Print/Println/Printf are emitted at Info level by logrus.
 func Print(args ...interface{}) {
-	getLogger(nil).Print(args...)
+	if e := getLoggerIfLevel(nil, logrus.InfoLevel); e != nil {
+		e.Print(args...)
+	}
 }
 
 func Println(args ...interface{}) {
-	getLogger(nil).Println(args...)
+	if e := getLoggerIfLevel(nil, logrus.InfoLevel); e != nil {
+		e.Println(args...)
+	}
 }
 
 func Printf(format string, args ...interface{}) {
-	getLogger(nil).Printf(format, args...)
+	if e := getLoggerIfLevel(nil, logrus.InfoLevel); e != nil {
+		e.Printf(format, args...)
+	}
 }
 
 func Error(args ...interface{}) {
-	getLogger(nil).Error(args...)
+	if e := getLoggerIfLevel(nil, logrus.ErrorLevel); e != nil {
+		e.Error(args...)
+	}
 }
 
 func Errorf(format string, args ...interface{}) {
-	getLogger(nil).Errorf(format, args...)
+	if e := getLoggerIfLevel(nil, logrus.ErrorLevel); e != nil {
+		e.Errorf(format, args...)
+	}
 }
 
 func Errorln(args ...interface{}) {
-	getLogger(nil).Errorln(args...)
+	if e := getLoggerIfLevel(nil, logrus.ErrorLevel); e != nil {
+		e.Errorln(args...)
+	}
 }
 
+// Fatal/Panic stay un-gated: their side effects (os.Exit, panic) must run
+// even when the underlying message would be filtered by the logger's level.
 func Fatal(args ...interface{}) {
 	getLogger(nil).Fatal(args...)
 }
@@ -457,14 +570,34 @@ func Panicln(args ...interface{}) {
 	getLogger(nil).Panicln(args...)
 }
 
+// Log/Logf/Logln dispatch on a runtime-supplied level. Fatal/Panic must still
+// run their side effects even if filtered, so we only gate other levels.
 func Log(level logrus.Level, args ...interface{}) {
-	getLogger(nil).Log(level, args...)
+	if level == logrus.FatalLevel || level == logrus.PanicLevel {
+		getLogger(nil).Log(level, args...)
+		return
+	}
+	if e := getLoggerIfLevel(nil, level); e != nil {
+		e.Log(level, args...)
+	}
 }
 
 func Logf(level logrus.Level, format string, args ...interface{}) {
-	getLogger(nil).Logf(level, format, args...)
+	if level == logrus.FatalLevel || level == logrus.PanicLevel {
+		getLogger(nil).Logf(level, format, args...)
+		return
+	}
+	if e := getLoggerIfLevel(nil, level); e != nil {
+		e.Logf(level, format, args...)
+	}
 }
 
 func Logln(level logrus.Level, args ...interface{}) {
-	getLogger(nil).Logln(level, args...)
+	if level == logrus.FatalLevel || level == logrus.PanicLevel {
+		getLogger(nil).Logln(level, args...)
+		return
+	}
+	if e := getLoggerIfLevel(nil, level); e != nil {
+		e.Logln(level, args...)
+	}
 }

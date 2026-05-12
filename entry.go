@@ -16,98 +16,114 @@ func (e *Entry) WithError(err error) *Entry {
 
 // Warn prints a warning...
 func (e *Entry) Warn(args ...interface{}) {
-	getLogger(e).Warn(args...)
+	if l := getLoggerIfLevel(e, logrus.WarnLevel); l != nil {
+		l.Warn(args...)
+	}
 }
 
 func (e *Entry) Warnln(args ...interface{}) {
-	getLogger(e).Warnln(args...)
+	if l := getLoggerIfLevel(e, logrus.WarnLevel); l != nil {
+		l.Warnln(args...)
+	}
 }
 
 func (e *Entry) Warnf(format string, args ...interface{}) {
-	getLogger(e).Warnf(format, args...)
+	if l := getLoggerIfLevel(e, logrus.WarnLevel); l != nil {
+		l.Warnf(format, args...)
+	}
 }
 
 func (e *Entry) Info(args ...interface{}) {
-	getLogger(e).Info(args...)
+	if l := getLoggerIfLevel(e, logrus.InfoLevel); l != nil {
+		l.Info(args...)
+	}
 }
 
 func (e *Entry) Infoln(args ...interface{}) {
-	getLogger(e).Infoln(args...)
+	if l := getLoggerIfLevel(e, logrus.InfoLevel); l != nil {
+		l.Infoln(args...)
+	}
 }
 
 func (e *Entry) Infof(format string, args ...interface{}) {
-	getLogger(e).Infof(format, args...)
+	if l := getLoggerIfLevel(e, logrus.InfoLevel); l != nil {
+		l.Infof(format, args...)
+	}
 }
 
 func (e *Entry) Trace(args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if l := getLoggerIfLevel(e, logrus.TraceLevel); l != nil {
+		l.Trace(args...)
 	}
-	getLogger(e).Trace(args...)
 }
 
 func (e *Entry) Traceln(args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if l := getLoggerIfLevel(e, logrus.TraceLevel); l != nil {
+		l.Traceln(args...)
 	}
-	getLogger(e).Traceln(args...)
 }
 
 func (e *Entry) Tracef(format string, args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if l := getLoggerIfLevel(e, logrus.TraceLevel); l != nil {
+		l.Tracef(format, args...)
 	}
-	getLogger(e).Tracef(format, args...)
 }
 
 func (e *Entry) Debug(args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if l := getLoggerIfLevel(e, logrus.DebugLevel); l != nil {
+		l.Debug(args...)
 	}
-	getLogger(e).Debug(args...)
 }
 
 func (e *Entry) Debugln(args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if l := getLoggerIfLevel(e, logrus.DebugLevel); l != nil {
+		l.Debugln(args...)
 	}
-	getLogger(e).Debugln(args...)
 }
 
 func (e *Entry) Debugf(format string, args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if l := getLoggerIfLevel(e, logrus.DebugLevel); l != nil {
+		l.Debugf(format, args...)
 	}
-	getLogger(e).Debugf(format, args...)
 }
 
 func (e *Entry) Print(args ...interface{}) {
-	if noCustomizations.Load() {
-		return
+	if l := getLoggerIfLevel(e, logrus.InfoLevel); l != nil {
+		l.Print(args...)
 	}
-	getLogger(e).Print(args...)
 }
 
 func (e *Entry) Println(args ...interface{}) {
-	getLogger(e).Println(args...)
+	if l := getLoggerIfLevel(e, logrus.InfoLevel); l != nil {
+		l.Println(args...)
+	}
 }
 
 func (e *Entry) Printf(format string, args ...interface{}) {
-	getLogger(e).Printf(format, args...)
+	if l := getLoggerIfLevel(e, logrus.InfoLevel); l != nil {
+		l.Printf(format, args...)
+	}
 }
 
 func (e *Entry) Error(args ...interface{}) {
-	getLogger(e).Error(args...)
+	if l := getLoggerIfLevel(e, logrus.ErrorLevel); l != nil {
+		l.Error(args...)
+	}
 }
 
 func (e *Entry) Errorf(format string, args ...interface{}) {
-	getLogger(e).Errorf(format, args...)
+	if l := getLoggerIfLevel(e, logrus.ErrorLevel); l != nil {
+		l.Errorf(format, args...)
+	}
 }
 
 func (e *Entry) Errorln(args ...interface{}) {
-	getLogger(e).Errorln(args...)
+	if l := getLoggerIfLevel(e, logrus.ErrorLevel); l != nil {
+		l.Errorln(args...)
+	}
 }
 
+// Fatal/Panic stay un-gated — see env_logger.go for the same reason.
 func (e *Entry) Fatal(args ...interface{}) {
 	getLogger(e).Fatal(args...)
 }
@@ -133,13 +149,31 @@ func (e *Entry) Panicln(args ...interface{}) {
 }
 
 func (e *Entry) Log(level logrus.Level, args ...interface{}) {
-	getLogger(e).Log(level, args...)
+	if level == logrus.FatalLevel || level == logrus.PanicLevel {
+		getLogger(e).Log(level, args...)
+		return
+	}
+	if l := getLoggerIfLevel(e, level); l != nil {
+		l.Log(level, args...)
+	}
 }
 
 func (e *Entry) Logf(level logrus.Level, format string, args ...interface{}) {
-	getLogger(e).Logf(level, format, args...)
+	if level == logrus.FatalLevel || level == logrus.PanicLevel {
+		getLogger(e).Logf(level, format, args...)
+		return
+	}
+	if l := getLoggerIfLevel(e, level); l != nil {
+		l.Logf(level, format, args...)
+	}
 }
 
 func (e *Entry) Logln(level logrus.Level, args ...interface{}) {
-	getLogger(e).Logln(level, args...)
+	if level == logrus.FatalLevel || level == logrus.PanicLevel {
+		getLogger(e).Logln(level, args...)
+		return
+	}
+	if l := getLoggerIfLevel(e, level); l != nil {
+		l.Logln(level, args...)
+	}
 }
