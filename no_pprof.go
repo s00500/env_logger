@@ -23,7 +23,7 @@ func profileServer(port uint16) {
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, "Error: "+err.Error())
+			fmt.Fprintf(w, "Error: %s", err.Error())
 			return
 		}
 		debugConfig := strings.TrimSpace(string(body))

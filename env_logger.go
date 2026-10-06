@@ -19,20 +19,33 @@ import (
 // loggerSet is an immutable snapshot of the active logger configuration.
 // Published atomically via activeSet so the hot path is a single atomic load.
 type loggerSet struct {
-	defaultLogger *logrus.Logger
-	loggers       map[string]*logrus.Logger
-	// maxLevel is the most permissive (highest numeric) level across the
-	// default logger and every per-package logger. Used as a cheap gate so
+	// logger is the one logrus logger everything is emitted through. Per-
+	// package levels are enforced by this package rather than by per-package
+	// logger copies, so the output, formatter, hooks and write lock are
+	// shared by every package.
+	logger *logrus.Logger
+	// levels holds the per-package levels from the config string.
+	levels map[string]logrus.Level
+	// defaultLevel applies to every package that has no entry in levels.
+	defaultLevel logrus.Level
+	// baseLevel is the level the logger itself was given by its owner, which
+	// is the default level when the config string does not name one. It has
+	// to be remembered because logger.Level is overwritten with maxLevel.
+	baseLevel logrus.Level
+	// maxLevel is the most permissive (highest numeric) level across
+	// defaultLevel and every per-package level. Used as a cheap gate so
 	// a Debug call under LOG=info can return without resolving the caller
-	// frame at all.
+	// frame at all. It is also the level set on logger, so that logrus lets
+	// through whatever the most verbose package wants.
 	maxLevel logrus.Level
 	// moduleEntries caches the *logrus.Entry produced by
 	// `logger.WithFields({"module": pkg})` keyed by pkg, so repeated log
 	// calls from the same package reuse a single entry instead of
-	// allocating a Fields map + Entry on every emit. The cache lives on
-	// the snapshot; a reconfigure swaps in a fresh empty cache and the old
-	// one is GC'd along with the old set.
-	moduleEntries sync.Map // key: string (pkg), value: *logrus.Entry
+	// allocating a Fields map + Entry on every emit. The entries only depend
+	// on logger, so snapshots of the same logger share one cache; a
+	// reconfigure swaps in a fresh empty cache and the old one is GC'd along
+	// with the old set.
+	moduleEntries *sync.Map // key: string (pkg), value: *logrus.Entry
 }
 
 // moduleEntry returns the cached module-decorated entry for pkg, building it
@@ -42,25 +55,84 @@ func (s *loggerSet) moduleEntry(pkg string) *logrus.Entry {
 	if cached, ok := s.moduleEntries.Load(pkg); ok {
 		return cached.(*logrus.Entry)
 	}
-	chosen := s.defaultLogger
-	if log, ok := s.loggers[pkg]; ok {
-		chosen = log
-	}
-	entry := chosen.WithFields(logrus.Fields{"module": pkg})
+	entry := s.logger.WithFields(logrus.Fields{"module": pkg})
 	actual, _ := s.moduleEntries.LoadOrStore(pkg, entry)
 	return actual.(*logrus.Entry)
 }
 
-// loggerForPkg returns the underlying *logrus.Logger that handles pkg.
-// Used for the IsLevelEnabled gate before deciding to fetch the cached entry.
-func (s *loggerSet) loggerForPkg(pkg string) *logrus.Logger {
-	if log, ok := s.loggers[pkg]; ok {
-		return log
+// levelFor returns the level configured for pkg.
+// Used for the level gate before deciding to fetch the cached entry.
+func (s *loggerSet) levelFor(pkg string) logrus.Level {
+	if lvl, ok := s.levels[pkg]; ok {
+		return lvl
 	}
-	return s.defaultLogger
+	return s.defaultLevel
+}
+
+// levelForEntry returns the level that applies to an already built entry,
+// going by the module it was created for.
+func (s *loggerSet) levelForEntry(e *logrus.Entry) logrus.Level {
+	if len(s.levels) != 0 {
+		if pkg, ok := e.Data["module"].(string); ok {
+			return s.levelFor(pkg)
+		}
+	}
+	return s.defaultLevel
 }
 
 var activeSet atomic.Pointer[loggerSet]
+
+// publishSet builds a snapshot, raises logger to the most permissive level
+// any package wants and makes the snapshot the active one.
+// Caller must hold configMu.
+func publishSet(logger *logrus.Logger, levels map[string]logrus.Level, baseLevel, defaultLevel logrus.Level, moduleEntries *sync.Map) *loggerSet {
+	maxLevel := defaultLevel
+	for _, lvl := range levels {
+		if lvl > maxLevel {
+			maxLevel = lvl
+		}
+	}
+
+	set := &loggerSet{
+		logger:        logger,
+		levels:        levels,
+		defaultLevel:  defaultLevel,
+		baseLevel:     baseLevel,
+		maxLevel:      maxLevel,
+		moduleEntries: moduleEntries,
+	}
+
+	// Hot-path readers see either the previous fully-built set or the new
+	// fully-built set, never a partial map.
+	logger.SetLevel(maxLevel)
+	activeSet.Store(set)
+	return set
+}
+
+// loadSet returns the active snapshot for a level-gated log call. A logger
+// level that differs from the one publishSet applied means SetLevel was
+// called on the logger directly; resync so that it is honored instead of
+// being masked by the snapshot's levels.
+func loadSet() *loggerSet {
+	set := activeSet.Load()
+	if set.logger.GetLevel() != set.maxLevel {
+		return resyncLevel()
+	}
+	return set
+}
+
+// resyncLevel adopts a level that was set on the logger directly as the new
+// default level.
+func resyncLevel() *loggerSet {
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	set := activeSet.Load()
+	if lvl := set.logger.GetLevel(); lvl != set.maxLevel {
+		set = publishSet(set.logger, set.levels, lvl, lvl, set.moduleEntries)
+	}
+	return set
+}
 
 // Pass through type to not have another import in packages using this lib
 type Fields logrus.Fields
@@ -98,26 +170,25 @@ func toEnum(s string) int {
 	}
 }
 
-func configurePackageLogger(log *logrus.Logger, value int) *logrus.Logger {
+func toLevel(value int) logrus.Level {
 	switch value {
 	case PanicV:
-		log.SetLevel(logrus.PanicLevel)
+		return logrus.PanicLevel
 	case FatalV:
-		log.SetLevel(logrus.FatalLevel)
+		return logrus.FatalLevel
 	case ErrV:
-		log.SetLevel(logrus.ErrorLevel)
+		return logrus.ErrorLevel
 	case WarnV:
-		log.SetLevel(logrus.WarnLevel)
+		return logrus.WarnLevel
 	case InfoV:
-		log.SetLevel(logrus.InfoLevel)
+		return logrus.InfoLevel
 	case DebugV:
-		log.SetLevel(logrus.DebugLevel)
+		return logrus.DebugLevel
 	case TraceV:
-		log.SetLevel(logrus.TraceLevel)
+		return logrus.TraceLevel
 	default:
-		log.SetLevel(logrus.InfoLevel)
+		return logrus.InfoLevel
 	}
-	return log
 }
 
 var (
@@ -153,9 +224,14 @@ func GetLoggerForPrefix(prefix string) *Entry {
 	return (*Entry)(activeSet.Load().moduleEntry(prefix))
 }
 
-// SetLevel sets the default loggers level
+// SetLevel sets the default level, the one used by every package that has no
+// level of its own in the debug config
 func SetLevel(level logrus.Level) {
-	activeSet.Load().defaultLogger.SetLevel(level)
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	set := activeSet.Load()
+	publishSet(set.logger, set.levels, level, level, set.moduleEntries)
 }
 
 var (
@@ -173,7 +249,16 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	levels := make(map[string]int)
+	levels := make(map[string]logrus.Level)
+
+	// Without a global level in the config the logger keeps the level its
+	// owner gave it. When the active logger is passed in again its level
+	// holds our maxLevel instead, unless it was changed directly since.
+	baseLevel := newdefaultLogger.GetLevel()
+	if old := activeSet.Load(); old != nil && old.logger == newdefaultLogger && baseLevel == old.maxLevel {
+		baseLevel = old.baseLevel
+	}
+	defaultLevel := baseLevel
 
 	if cancelFunc != nil {
 		cancelFunc()
@@ -216,46 +301,16 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 				cancelFunc = cancel
 				go logGoRoutines(ctx)
 			} else if len(tmp) == 1 {
-				levels["global_log"] = toEnum(tmp[0])
+				defaultLevel = toLevel(toEnum(tmp[0]))
 			} else if len(tmp) == 2 {
-				levels[tmp[0]] = toEnum(tmp[1])
+				levels[tmp[0]] = toLevel(toEnum(tmp[1]))
 			} else {
 				newdefaultLogger.Fatal("line: '", pkg, "' is formatted incorrectly, please refer to the documentation for correct usage")
 			}
 		}
 	}
 
-	newLoggers := make(map[string]*logrus.Logger, len(levels))
-	for key, value := range levels {
-		// Copy some properties of the default logger
-		pLogger := logrus.New()
-		pLogger.Out = newdefaultLogger.Out
-		pLogger.Formatter = newdefaultLogger.Formatter
-		newLoggers[key] = configurePackageLogger(pLogger, value)
-	}
-
-	// configure main logger
-	newDefault := newdefaultLogger
-	if value, ok := newLoggers["global_log"]; ok {
-		newDefault = value
-	}
-
-	// Compute the most permissive level so the hot path can short-circuit
-	// without touching runtime.Callers when nothing wants this verbosity.
-	maxLevel := newDefault.GetLevel()
-	for _, l := range newLoggers {
-		if lvl := l.GetLevel(); lvl > maxLevel {
-			maxLevel = lvl
-		}
-	}
-
-	// Publish the new snapshot atomically. Hot-path readers see either the
-	// previous fully-built set or the new fully-built set, never a partial map.
-	activeSet.Store(&loggerSet{
-		defaultLogger: newDefault,
-		loggers:       newLoggers,
-		maxLevel:      maxLevel,
-	})
+	publishSet(newdefaultLogger, levels, baseLevel, defaultLevel, new(sync.Map))
 
 	if startProfileServer {
 		startServer.Do(func() {
@@ -343,9 +398,18 @@ func getPackage() (string, string, int) {
 }
 
 func getLogger(e *Entry) *logrus.Entry {
-	// One atomic load gives us a consistent (defaultLogger, loggers) view for
+	// One atomic load gives us a consistent (logger, levels) view for
 	// the duration of this call, even if ConfigureAllLoggers swaps mid-flight.
 	set := activeSet.Load()
+	wantFile := filelines.Load()
+	wantRoutines := printGoRoutines.Load()
+
+	// Pre-existing entry: skip caller resolution entirely if no decoration
+	// is needed.
+	if e != nil && !wantFile && !wantRoutines {
+		return (*logrus.Entry)(e)
+	}
+
 	pkg, file, line := getPackage()
 
 	var logentry *logrus.Entry
@@ -355,35 +419,42 @@ func getLogger(e *Entry) *logrus.Entry {
 		logentry = set.moduleEntry(pkg)
 	}
 
-	if filelines.Load() {
+	if wantFile {
 		logentry = logentry.WithFields(logrus.Fields{"file": fmt.Sprintf("'%s:%d'", file, line)})
 	}
 
-	if printGoRoutines.Load() {
+	if wantRoutines {
 		logentry = logentry.WithFields(logrus.Fields{"routines": runtime.NumGoroutine()})
 	}
 
 	return logentry
 }
 
-// getLoggerIfLevel is like getLogger but returns nil when no logger in the
-// active snapshot would accept the given level — letting callers skip the
+// getLoggerIfLevel is like getLogger but returns nil when the active
+// snapshot does not accept the given level — letting callers skip the
 // whole Log call (no runtime.Callers, no map lookup, no allocation).
 //
 // MUST NOT be used for Fatal or Panic levels: those have side effects
 // (os.Exit / panic) that callers expect to fire even when the message is
 // filtered.
 func getLoggerIfLevel(e *Entry, level logrus.Level) *logrus.Entry {
-	set := activeSet.Load()
+	set := loadSet()
+
+	// Global gate: if not even the most permissive package wants this level,
+	// drop now — before resolving the caller frame.
+	if level > set.maxLevel {
+		return nil
+	}
+
 	wantFile := filelines.Load()
 	wantRoutines := printGoRoutines.Load()
 
 	if e != nil {
-		// Pre-existing entry: gate on its own logger's level.
-		if !(*logrus.Entry)(e).Logger.IsLevelEnabled(level) {
+		logentry := (*logrus.Entry)(e)
+		// Pre-existing entry: gate on the level of the module it was built for.
+		if level > set.levelForEntry(logentry) {
 			return nil
 		}
-		logentry := (*logrus.Entry)(e)
 		// Skip caller resolution entirely if no decoration is needed.
 		if !wantFile && !wantRoutines {
 			return logentry
@@ -398,17 +469,11 @@ func getLoggerIfLevel(e *Entry, level logrus.Level) *logrus.Entry {
 		return logentry
 	}
 
-	// e == nil path. Global gate: if not even the most permissive logger
-	// wants this level, drop now — before resolving the caller frame.
-	if level > set.maxLevel {
-		return nil
-	}
-
 	pkg, file, line := getPackage()
 
-	// Per-package gate: the global gate above only proved *some* logger
-	// wants this level; the one for *this* package might still reject it.
-	if !set.loggerForPkg(pkg).IsLevelEnabled(level) {
+	// Per-package gate: the global gate above only proved *some* package
+	// wants this level; *this* package might still reject it.
+	if level > set.levelFor(pkg) {
 		return nil
 	}
 	logentry := set.moduleEntry(pkg)

@@ -69,3 +69,51 @@ func BenchmarkEntryDebugFiltered(b *testing.B) {
 		entry.Debug("hello world")
 	}
 }
+
+// BenchmarkDebugFilteredOtherPkgDebug: Debug() from a package at Info while
+// another package is at Trace. The global gate passes, so the caller frame
+// has to be resolved before the per-package gate can drop the call.
+func BenchmarkDebugFilteredOtherPkgDebug(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info,other=trace")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		env_logger.Debug("hello world")
+	}
+}
+
+// BenchmarkEntryDebugFilteredOtherPkgDebug: same, but through a pre-built
+// entry, which is gated on its module field instead of the caller frame.
+func BenchmarkEntryDebugFilteredOtherPkgDebug(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info,other=trace")
+	entry := env_logger.GetLoggerForPrefix("pkg")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		entry.Debug("hello world")
+	}
+}
+
+// BenchmarkEntryWithFieldDebugFiltered: adding a field to a pre-built entry
+// should not resolve the caller frame when filelines/printGoRoutines are off.
+func BenchmarkEntryWithFieldDebugFiltered(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info")
+	entry := env_logger.GetLoggerForPrefix("pkg")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		entry.WithField("k", i).Debug("hello world")
+	}
+}
+
+// BenchmarkInfoEmittedParallel: Info() from many goroutines at once.
+func BenchmarkInfoEmittedParallel(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info")
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			env_logger.Info("hello world")
+		}
+	})
+}
