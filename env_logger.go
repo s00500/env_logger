@@ -308,6 +308,21 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	configMu.Lock()
 	defer configMu.Unlock()
 
+	configureLocked(newdefaultLogger, debugConfig)
+}
+
+// reconfigureActiveLogger applies a new debug config to the logger that is
+// in use, keeping its output, formatter and hooks.
+func reconfigureActiveLogger(debugConfig string) {
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	configureLocked(activeSet.Load().logger, debugConfig)
+}
+
+// configureLocked does the work of ConfigureAllLoggers.
+// Caller must hold configMu.
+func configureLocked(newdefaultLogger *logrus.Logger, debugConfig string) {
 	// Without a global level in the config the logger keeps the level its
 	// owner gave it. When the active logger is passed in again its level
 	// holds our maxLevel instead, unless it was changed directly since.

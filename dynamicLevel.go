@@ -49,7 +49,8 @@ func newProfileMux() *http.ServeMux {
 			return
 		}
 		debugConfig := strings.TrimSpace(string(body))
-		SetGlobalDebugConfig(debugConfig)
+		// Only the config changes, the logger the application set up stays
+		reconfigureActiveLogger(debugConfig)
 
 		fmt.Fprintf(w, "New log config: %s", debugConfig)
 	})
