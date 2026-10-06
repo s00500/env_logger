@@ -7,6 +7,8 @@ This is a super simple project which aims to help out with setting up logging co
 The entire logging framework is configured via a single environment variable `LOG`. The variable is a comma delimited list
 of packages and their respective log-levels. (falling back to InfoLevel if not configured).
 
+Parts of the variable that can not be understood (an unknown level, a stray `=`) are ignored and reported as a warning, the rest is still applied.
+
 # Windows support
 
 This logger should be fully able to work colored on windows! TTY detection may fail though, so to ensure that it does not set the environment variable *CLICOLOR_FORCE=1* in your shell.
@@ -27,6 +29,8 @@ Some bonus modifiers exist for the log config:
 - **log.Wrap** can be used with Should and must functions to provide additional error information (eg: log.Should(log.Wrap(err, "on testing %s", somedata)))
 - **log.ShouldWrap** convenience for the above
 - **log.Indent** can be used to prety print the public fields of a structure (eg: log.Info(log.Indent(myStructure)))
+- **log.GetLoggerForPackage** returns a logger for the package it is called from. It logs the same as the package level functions but does not have to look up the caller on every call, so prefer it in hot code (eg: var log = env_logger.GetLoggerForPackage())
+- **log.ListModules** returns the names of all modules that have logged so far, these are the names to use in the log config
 - **log.Timer and log.TimerEnd** can be used to quickly measure the time between 2 places with a key, similar to js. this does not log on its own, use with one of the standard log functions (just like .Indent above)
 
 ## Dynamic log config

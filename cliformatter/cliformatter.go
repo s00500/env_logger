@@ -1,7 +1,9 @@
 package cliformatter
 
 import (
+	"bytes"
 	"fmt"
+	"sort"
 
 	"github.com/sirupsen/logrus"
 )
@@ -83,20 +85,39 @@ func getLevelMarkup(level logrus.Level) (icon string, color int) {
 // Format building log message.
 func (f *Formatter) Format(entry *logrus.Entry) ([]byte, error) {
 	icon, color := getLevelMarkup(entry.Level)
-	output := ""
-	if color == 0 {
-		output = fmt.Sprintf("%s %s\t", icon, entry.Message)
-	} else {
-		output = fmt.Sprintf("%s \x1b[%dm%s\x1b[0m\t", icon, color, entry.Message)
+
+	// logrus hands every entry a pooled buffer to format into
+	output := entry.Buffer
+	if output == nil {
+		output = &bytes.Buffer{}
 	}
 
-	for k, v := range entry.Data {
-		if f.PrintFields || !f.DisablePrintErrors && k == "error" {
-			output = fmt.Sprintf("%s \x1b[%dm%s\x1b[0m=%v", output, color, k, v)
+	output.WriteString(icon)
+	output.WriteByte(' ')
+	if color == 0 {
+		output.WriteString(entry.Message)
+	} else {
+		fmt.Fprintf(output, "\x1b[%dm%s\x1b[0m", color, entry.Message)
+	}
+	output.WriteByte('\t')
+
+	if f.PrintFields {
+		// sorted, to have the fields in the same order on every line
+		keys := make([]string, 0, len(entry.Data))
+		for k := range entry.Data {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Fprintf(output, " \x1b[%dm%s\x1b[0m=%v", color, k, entry.Data[k])
+		}
+	} else if !f.DisablePrintErrors {
+		if v, ok := entry.Data["error"]; ok {
+			fmt.Fprintf(output, " \x1b[%dm%s\x1b[0m=%v", color, "error", v)
 		}
 	}
 
-	output = fmt.Sprintf("%s\n", output)
+	output.WriteByte('\n')
 
-	return []byte(output), nil
+	return output.Bytes(), nil
 }

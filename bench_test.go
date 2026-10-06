@@ -117,3 +117,28 @@ func BenchmarkInfoEmittedParallel(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkInfoEmittedLineNumbers: Info() with ln on. The file field is part
+// of the entry cached for the call site, so it should cost about the same as
+// BenchmarkInfoEmitted.
+func BenchmarkInfoEmittedLineNumbers(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info,ln")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		env_logger.Info("hello world")
+	}
+}
+
+// BenchmarkPackageEntryDebugFilteredOtherPkgDebug: like
+// BenchmarkDebugFilteredOtherPkgDebug, but through GetLoggerForPackage,
+// which does not have to resolve the caller frame.
+func BenchmarkPackageEntryDebugFilteredOtherPkgDebug(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info,other=trace")
+	entry := env_logger.GetLoggerForPackage()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		entry.Debug("hello world")
+	}
+}

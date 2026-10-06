@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,30 +39,64 @@ type loggerSet struct {
 	// frame at all. It is also the level set on logger, so that logrus lets
 	// through whatever the most verbose package wants.
 	maxLevel logrus.Level
-	// moduleEntries caches the *logrus.Entry produced by
-	// `logger.WithFields({"module": pkg})` keyed by pkg, so repeated log
-	// calls from the same package reuse a single entry instead of
-	// allocating a Fields map + Entry on every emit. The entries only depend
-	// on logger, so snapshots of the same logger share one cache; a
+	// filelines adds the file field (ln), printGoRoutines the routines
+	// field (gr) to every log statement.
+	filelines       bool
+	printGoRoutines bool
+	// moduleEntries caches the module-decorated entries of logger. They only
+	// depend on logger, so snapshots of the same logger share one cache; a
 	// reconfigure swaps in a fresh empty cache and the old one is GC'd along
 	// with the old set.
-	moduleEntries *sync.Map // key: string (pkg), value: *logrus.Entry
+	moduleEntries *entryCache
+	// sites caches what a log call resolves to in this snapshot, keyed by
+	// the PC of the call, so the hot path is a single lookup.
+	sites *sync.Map // key: uintptr (pc), value: *callSite
+}
+
+// maxModuleEntries bounds entryCache, so that prefixes generated at runtime
+// (per connection, per device, ...) can not grow it forever.
+const maxModuleEntries = 1024
+
+// entryCache caches the *logrus.Entry produced by
+// `logger.WithFields({"module": pkg})` keyed by pkg, so repeated log calls
+// from the same package reuse a single entry instead of allocating a Fields
+// map + Entry on every emit.
+type entryCache struct {
+	entries sync.Map // key: string (pkg), value: *logrus.Entry
+	size    atomic.Int32
+}
+
+// callSite is what a log call from one PC resolves to in a snapshot.
+type callSite struct {
+	pkg string
+	// file is the value of the file field, "'file:line'"
+	file string
+	// level is the level configured for pkg
+	level logrus.Level
+	// entry carries the module field, plus the file field if filelines is on
+	entry *logrus.Entry
 }
 
 // moduleEntry returns the cached module-decorated entry for pkg, building it
 // on first observation. Safe for concurrent callers thanks to sync.Map's
 // LoadOrStore — duplicate work on a race is harmless and discarded.
 func (s *loggerSet) moduleEntry(pkg string) *logrus.Entry {
-	if cached, ok := s.moduleEntries.Load(pkg); ok {
+	cache := s.moduleEntries
+	if cached, ok := cache.entries.Load(pkg); ok {
 		return cached.(*logrus.Entry)
 	}
 	entry := s.logger.WithFields(logrus.Fields{"module": pkg})
-	actual, _ := s.moduleEntries.LoadOrStore(pkg, entry)
+	if cache.size.Load() >= maxModuleEntries {
+		return entry
+	}
+	actual, loaded := cache.entries.LoadOrStore(pkg, entry)
+	if !loaded {
+		cache.size.Add(1)
+	}
 	return actual.(*logrus.Entry)
 }
 
 // levelFor returns the level configured for pkg.
-// Used for the level gate before deciding to fetch the cached entry.
 func (s *loggerSet) levelFor(pkg string) logrus.Level {
 	if lvl, ok := s.levels[pkg]; ok {
 		return lvl
@@ -80,31 +115,75 @@ func (s *loggerSet) levelForEntry(e *logrus.Entry) logrus.Level {
 	return s.defaultLevel
 }
 
+// rebind makes sure e logs through the active logger. Entries that were
+// built before a reconfigure still point at the logger of that time; they
+// have to follow the new output, formatter and hooks like everything else.
+func (s *loggerSet) rebind(e *logrus.Entry) *logrus.Entry {
+	if e.Logger == s.logger {
+		return e
+	}
+	rebound := *e
+	rebound.Logger = s.logger
+	return &rebound
+}
+
+// withRoutines adds the routines field if it is switched on.
+func (s *loggerSet) withRoutines(logentry *logrus.Entry) *logrus.Entry {
+	if s.printGoRoutines {
+		return logentry.WithFields(logrus.Fields{"routines": runtime.NumGoroutine()})
+	}
+	return logentry
+}
+
+// callSite resolves the PC found skip frames up the stack, see
+// runtime.Callers. It has to be called directly by the function that is
+// called directly by the user for the skip of 4 the log functions use.
+func (s *loggerSet) callSite(skip int) *callSite {
+	// Stack-allocated buffer; avoids a heap allocation per log call.
+	var fpcs [1]uintptr
+	if runtime.Callers(skip, fpcs[:]) == 0 {
+		return s.siteForPC(0) // proper error her would be better
+	}
+	return s.siteForPC(fpcs[0])
+}
+
+// siteForPC returns the cached callSite for pc, building it on first
+// observation.
+func (s *loggerSet) siteForPC(pc uintptr) *callSite {
+	if cached, ok := s.sites.Load(pc); ok {
+		return cached.(*callSite)
+	}
+	fi := resolveFrame(pc)
+	site := &callSite{
+		pkg:   fi.pkg,
+		file:  fi.file,
+		level: s.levelFor(fi.pkg),
+		entry: s.moduleEntry(fi.pkg),
+	}
+	if s.filelines {
+		site.entry = site.entry.WithFields(logrus.Fields{"file": site.file})
+	}
+	actual, _ := s.sites.LoadOrStore(pc, site)
+	return actual.(*callSite)
+}
+
 var activeSet atomic.Pointer[loggerSet]
 
-// publishSet builds a snapshot, raises logger to the most permissive level
-// any package wants and makes the snapshot the active one.
+// publishSet completes the snapshot, raises its logger to the most
+// permissive level any package wants and makes the snapshot the active one.
 // Caller must hold configMu.
-func publishSet(logger *logrus.Logger, levels map[string]logrus.Level, baseLevel, defaultLevel logrus.Level, moduleEntries *sync.Map) *loggerSet {
-	maxLevel := defaultLevel
-	for _, lvl := range levels {
-		if lvl > maxLevel {
-			maxLevel = lvl
+func publishSet(set *loggerSet) *loggerSet {
+	set.maxLevel = set.defaultLevel
+	for _, lvl := range set.levels {
+		if lvl > set.maxLevel {
+			set.maxLevel = lvl
 		}
 	}
-
-	set := &loggerSet{
-		logger:        logger,
-		levels:        levels,
-		defaultLevel:  defaultLevel,
-		baseLevel:     baseLevel,
-		maxLevel:      maxLevel,
-		moduleEntries: moduleEntries,
-	}
+	set.sites = new(sync.Map)
 
 	// Hot-path readers see either the previous fully-built set or the new
-	// fully-built set, never a partial map.
-	logger.SetLevel(maxLevel)
+	// fully-built set, never a partial one.
+	set.logger.SetLevel(set.maxLevel)
 	activeSet.Store(set)
 	return set
 }
@@ -129,7 +208,9 @@ func resyncLevel() *loggerSet {
 
 	set := activeSet.Load()
 	if lvl := set.logger.GetLevel(); lvl != set.maxLevel {
-		set = publishSet(set.logger, set.levels, lvl, lvl, set.moduleEntries)
+		next := *set
+		next.defaultLevel, next.baseLevel = lvl, lvl
+		set = publishSet(&next)
 	}
 	return set
 }
@@ -149,53 +230,7 @@ const (
 	PanicV = iota
 )
 
-func toEnum(s string) int {
-	switch strings.ToLower(s) {
-	case "trace":
-		return TraceV
-	case "warn":
-		return WarnV
-	case "debug":
-		return DebugV
-	case "info":
-		return InfoV
-	case "error":
-		return ErrV
-	case "fatal":
-		return FatalV
-	case "panic":
-		return PanicV
-	default:
-		return InfoV
-	}
-}
-
-func toLevel(value int) logrus.Level {
-	switch value {
-	case PanicV:
-		return logrus.PanicLevel
-	case FatalV:
-		return logrus.FatalLevel
-	case ErrV:
-		return logrus.ErrorLevel
-	case WarnV:
-		return logrus.WarnLevel
-	case InfoV:
-		return logrus.InfoLevel
-	case DebugV:
-		return logrus.DebugLevel
-	case TraceV:
-		return logrus.TraceLevel
-	default:
-		return logrus.InfoLevel
-	}
-}
-
-var (
-	filelines       atomic.Bool
-	printGoRoutines atomic.Bool
-	mainModuleName  string // written only from init(), then read-only
-)
+var mainModuleName string // written only from init(), then read-only
 
 func init() {
 	logger := logrus.New()
@@ -216,12 +251,26 @@ func init() {
 
 // EnableLineNumbers log output of linenumbers as logerus fields
 func EnableLineNumbers() {
-	filelines.Store(true)
+	configMu.Lock()
+	defer configMu.Unlock()
+
+	next := *activeSet.Load()
+	next.filelines = true
+	publishSet(&next)
 }
 
 // GetLoggerForPrefix gets the logger for a certain prefix if it has been configured
 func GetLoggerForPrefix(prefix string) *Entry {
 	return (*Entry)(activeSet.Load().moduleEntry(prefix))
+}
+
+// GetLoggerForPackage gets the logger for the package it is called from.
+// Logging through it gives the same output as the package level functions,
+// but without looking up the caller on every call, which makes it the
+// cheaper choice for hot code: var log = env_logger.GetLoggerForPackage()
+func GetLoggerForPackage() *Entry {
+	set := activeSet.Load()
+	return (*Entry)(set.moduleEntry(set.callSite(3).pkg))
 }
 
 // SetLevel sets the default level, the one used by every package that has no
@@ -230,8 +279,9 @@ func SetLevel(level logrus.Level) {
 	configMu.Lock()
 	defer configMu.Unlock()
 
-	set := activeSet.Load()
-	publishSet(set.logger, set.levels, level, level, set.moduleEntries)
+	next := *activeSet.Load()
+	next.defaultLevel, next.baseLevel = level, level
+	publishSet(&next)
 }
 
 var (
@@ -241,15 +291,22 @@ var (
 	// resetting state, swapping the snapshot). Hot-path readers do not take it.
 	configMu   sync.Mutex
 	cancelFunc context.CancelFunc // guarded by configMu
+
+	// What mut= and blk= changed, to undo it once the config drops them.
+	// Guarded by configMu.
+	mutexProfileSet  bool
+	mutexProfilePrev int
+	blockProfileSet  bool
 )
 
 // ConfigureLogger takes in a logger object and configures the logger depending on environment variables.
 // Configured based on the GOLANG_DEBUG environment variable
+//
+// Parts of the debugConfig that can not be understood are ignored and
+// reported as a warning on the logger.
 func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	configMu.Lock()
 	defer configMu.Unlock()
-
-	levels := make(map[string]logrus.Level)
 
 	// Without a global level in the config the logger keeps the level its
 	// owner gave it. When the active logger is passed in again its level
@@ -258,59 +315,114 @@ func ConfigureAllLoggers(newdefaultLogger *logrus.Logger, debugConfig string) {
 	if old := activeSet.Load(); old != nil && old.logger == newdefaultLogger && baseLevel == old.maxLevel {
 		baseLevel = old.baseLevel
 	}
-	defaultLevel := baseLevel
+
+	set := &loggerSet{
+		logger:        newdefaultLogger,
+		levels:        make(map[string]logrus.Level),
+		defaultLevel:  baseLevel,
+		baseLevel:     baseLevel,
+		moduleEntries: new(entryCache),
+	}
 
 	if cancelFunc != nil {
 		cancelFunc()
 		cancelFunc = nil
 	}
 
-	// reset all
-	printGoRoutines.Store(false)
-	filelines.Store(false)
+	var problems []string
 
 	startProfileServer := false
 	profileServerPort := uint16(11111)
-	if debugConfig != "" {
-		packages := strings.Split(debugConfig, ",")
+	routineLoop := false
+	mutexFraction, setMutexFraction := 0, false
+	blockRate, setBlockRate := 0, false
 
-		for _, pkg := range packages {
-			// check if a package name has been specified, if not default to main
-			tmp := strings.Split(pkg, "=")
-			if len(tmp) == 1 && tmp[0] == "ln" {
-				filelines.Store(true)
-			} else if len(tmp) == 2 && tmp[0] == "mut" { // mut=10 to set it up
-				if val, err := strconv.Atoi(tmp[1]); err == nil {
-					runtime.SetMutexProfileFraction(val)
-				}
-			} else if len(tmp) == 2 && tmp[0] == "blk" { // blk=10 to set blockProfile
-				if val, err := strconv.Atoi(tmp[1]); err == nil {
-					runtime.SetBlockProfileRate(val)
-				}
-			} else if len(tmp) == 1 && tmp[0] == "pp" { // pprof
-				startProfileServer = true
-			} else if len(tmp) == 2 && tmp[0] == "ppport" { // pprof port
-				if val, err := strconv.Atoi(tmp[1]); err == nil {
-					profileServerPort = uint16(val)
-				}
-			} else if len(tmp) == 1 && tmp[0] == "gr" { // go routine log
-				printGoRoutines.Store(true)
-			} else if len(tmp) == 1 && tmp[0] == "grl" { // go routine loop
-				printGoRoutines.Store(true)
-				ctx, cancel := context.WithCancel(context.Background())
-				cancelFunc = cancel
-				go logGoRoutines(ctx)
-			} else if len(tmp) == 1 {
-				defaultLevel = toLevel(toEnum(tmp[0]))
-			} else if len(tmp) == 2 {
-				levels[tmp[0]] = toLevel(toEnum(tmp[1]))
+	for _, option := range strings.Split(debugConfig, ",") {
+		option = strings.TrimSpace(option)
+		if option == "" {
+			continue
+		}
+
+		// check if a package name has been specified, if not default to main
+		key, value, hasValue := strings.Cut(option, "=")
+		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+
+		switch {
+		case !hasValue && key == "ln":
+			set.filelines = true
+		case !hasValue && key == "pp": // pprof
+			startProfileServer = true
+		case !hasValue && key == "gr": // go routine log
+			set.printGoRoutines = true
+		case !hasValue && key == "grl": // go routine loop
+			set.printGoRoutines = true
+			routineLoop = true
+		case hasValue && key == "mut": // mut=10 to set it up
+			if val, err := strconv.Atoi(value); err == nil {
+				mutexFraction, setMutexFraction = val, true
 			} else {
-				newdefaultLogger.Fatal("line: '", pkg, "' is formatted incorrectly, please refer to the documentation for correct usage")
+				problems = append(problems, fmt.Sprintf("'%s': '%s' is not a number", option, value))
+			}
+		case hasValue && key == "blk": // blk=10 to set blockProfile
+			if val, err := strconv.Atoi(value); err == nil {
+				blockRate, setBlockRate = val, true
+			} else {
+				problems = append(problems, fmt.Sprintf("'%s': '%s' is not a number", option, value))
+			}
+		case hasValue && key == "ppport": // pprof port
+			if val, err := strconv.Atoi(value); err == nil && val > 0 && val <= 65535 {
+				profileServerPort = uint16(val)
+			} else {
+				problems = append(problems, fmt.Sprintf("'%s': '%s' is not a port", option, value))
+			}
+		case !hasValue:
+			if level, err := logrus.ParseLevel(key); err == nil {
+				set.defaultLevel = level
+			} else {
+				problems = append(problems, fmt.Sprintf("'%s' is neither a level nor an option", option))
+			}
+		case key == "" || strings.Contains(value, "="):
+			problems = append(problems, fmt.Sprintf("'%s' is formatted incorrectly, please refer to the documentation for correct usage", option))
+		default:
+			if level, err := logrus.ParseLevel(value); err == nil {
+				set.levels[key] = level
+			} else {
+				problems = append(problems, fmt.Sprintf("'%s': '%s' is not a level", option, value))
 			}
 		}
 	}
 
-	publishSet(newdefaultLogger, levels, baseLevel, defaultLevel, new(sync.Map))
+	// reset what an earlier config changed and this one no longer asks for
+	if setMutexFraction {
+		prev := runtime.SetMutexProfileFraction(mutexFraction)
+		if !mutexProfileSet {
+			mutexProfileSet, mutexProfilePrev = true, prev
+		}
+	} else if mutexProfileSet {
+		runtime.SetMutexProfileFraction(mutexProfilePrev)
+		mutexProfileSet = false
+	}
+	if setBlockRate {
+		runtime.SetBlockProfileRate(blockRate)
+		blockProfileSet = true
+	} else if blockProfileSet {
+		runtime.SetBlockProfileRate(0)
+		blockProfileSet = false
+	}
+
+	publishSet(set)
+
+	// Reported on the logger directly: the log functions of this package
+	// may need configMu, which is held here.
+	for _, problem := range problems {
+		newdefaultLogger.WithFields(logrus.Fields{"module": "env_logger"}).Warn("ignoring log config ", problem)
+	}
+
+	if routineLoop {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancelFunc = cancel
+		go logGoRoutines(ctx)
+	}
 
 	if startProfileServer {
 		startServer.Do(func() {
@@ -328,42 +440,36 @@ func AutoStartProfileServer(port uint16) {
 	})
 }
 
-// frameInfo is the cached result of resolving a PC to a (pkg, file, line).
+// frameInfo is the cached result of resolving a PC to a (pkg, file:line).
 // The values are deterministic per PC (mainModuleName is set once in init),
 // so we can cache and skip the FuncForPC + string surgery on every log call.
 type frameInfo struct {
-	pkg  string
+	pkg string
+	// file is preformatted as the value of the file field, "'file:line'"
 	file string
-	line int
 }
 
 // frameCache maps PC (uintptr) -> frameInfo. sync.Map fits the access pattern
 // well: writes only happen on first observation of each call site, and reads
-// vastly outnumber writes thereafter.
+// vastly outnumber writes thereafter. Unlike loggerSet.sites it survives a
+// reconfigure.
 var frameCache sync.Map
 
 // Props to https://stackoverflow.com/a/35213181 for the code
-func getPackage() (string, string, int) {
-
-	// Stack-allocated buffer; avoids a heap allocation per log call.
-	var fpcs [1]uintptr
-
-	// skip 4 levels to get to the caller of whoever called getPackage()
-	n := runtime.Callers(4, fpcs[:])
-	if n == 0 {
-		return "", "", 0 // proper error her would be better
+func resolveFrame(pc uintptr) frameInfo {
+	if v, ok := frameCache.Load(pc); ok {
+		return v.(frameInfo)
 	}
 
-	pc := fpcs[0]
-	if v, ok := frameCache.Load(pc); ok {
-		fi := v.(frameInfo)
-		return fi.pkg, fi.file, fi.line
+	unknown := frameInfo{file: "':0'"}
+	if pc == 0 {
+		return unknown
 	}
 
 	// get the info of the actual function that's in the pointer
 	fun := runtime.FuncForPC(pc - 1)
 	if fun == nil {
-		return "", "", 0
+		return unknown
 	}
 
 	name := fun.Name()
@@ -393,41 +499,48 @@ func getPackage() (string, string, int) {
 	pkg := strings.TrimPrefix(name[0:lastSlash+firstPoint], mainModuleName+"/")
 	file = strings.TrimPrefix(file, mainModuleName+"/")
 
-	frameCache.Store(pc, frameInfo{pkg: pkg, file: file, line: line})
-	return pkg, file, line
+	fi := frameInfo{pkg: pkg, file: fmt.Sprintf("'%s:%d'", file, line)}
+	frameCache.Store(pc, fi)
+	return fi
+}
+
+// ListModules lists the modules that have logged so far, sorted. These are
+// the names to use for per-package levels in the debug config. Calls that
+// were dropped because no package at all wants their level are not seen.
+func ListModules() []string {
+	seen := make(map[string]struct{})
+	frameCache.Range(func(_, v interface{}) bool {
+		seen[v.(frameInfo).pkg] = struct{}{}
+		return true
+	})
+	activeSet.Load().moduleEntries.entries.Range(func(k, _ interface{}) bool {
+		seen[k.(string)] = struct{}{}
+		return true
+	})
+
+	modules := make([]string, 0, len(seen))
+	for module := range seen {
+		modules = append(modules, module)
+	}
+	sort.Strings(modules)
+	return modules
 }
 
 func getLogger(e *Entry) *logrus.Entry {
 	// One atomic load gives us a consistent (logger, levels) view for
 	// the duration of this call, even if ConfigureAllLoggers swaps mid-flight.
 	set := activeSet.Load()
-	wantFile := filelines.Load()
-	wantRoutines := printGoRoutines.Load()
 
-	// Pre-existing entry: skip caller resolution entirely if no decoration
-	// is needed.
-	if e != nil && !wantFile && !wantRoutines {
-		return (*logrus.Entry)(e)
-	}
-
-	pkg, file, line := getPackage()
-
-	var logentry *logrus.Entry
 	if e != nil {
-		logentry = (*logrus.Entry)(e)
-	} else {
-		logentry = set.moduleEntry(pkg)
+		logentry := set.rebind((*logrus.Entry)(e))
+		// Pre-existing entry: the caller is only needed for the file field.
+		if set.filelines {
+			logentry = logentry.WithFields(logrus.Fields{"file": set.callSite(4).file})
+		}
+		return set.withRoutines(logentry)
 	}
 
-	if wantFile {
-		logentry = logentry.WithFields(logrus.Fields{"file": fmt.Sprintf("'%s:%d'", file, line)})
-	}
-
-	if wantRoutines {
-		logentry = logentry.WithFields(logrus.Fields{"routines": runtime.NumGoroutine()})
-	}
-
-	return logentry
+	return set.withRoutines(set.callSite(4).entry)
 }
 
 // getLoggerIfLevel is like getLogger but returns nil when the active
@@ -446,45 +559,28 @@ func getLoggerIfLevel(e *Entry, level logrus.Level) *logrus.Entry {
 		return nil
 	}
 
-	wantFile := filelines.Load()
-	wantRoutines := printGoRoutines.Load()
-
 	if e != nil {
 		logentry := (*logrus.Entry)(e)
 		// Pre-existing entry: gate on the level of the module it was built for.
 		if level > set.levelForEntry(logentry) {
 			return nil
 		}
-		// Skip caller resolution entirely if no decoration is needed.
-		if !wantFile && !wantRoutines {
-			return logentry
+		logentry = set.rebind(logentry)
+		// The caller is only needed for the file field.
+		if set.filelines {
+			logentry = logentry.WithFields(logrus.Fields{"file": set.callSite(4).file})
 		}
-		_, file, line := getPackage()
-		if wantFile {
-			logentry = logentry.WithFields(logrus.Fields{"file": fmt.Sprintf("'%s:%d'", file, line)})
-		}
-		if wantRoutines {
-			logentry = logentry.WithFields(logrus.Fields{"routines": runtime.NumGoroutine()})
-		}
-		return logentry
+		return set.withRoutines(logentry)
 	}
 
-	pkg, file, line := getPackage()
+	site := set.callSite(4)
 
 	// Per-package gate: the global gate above only proved *some* package
 	// wants this level; *this* package might still reject it.
-	if level > set.levelFor(pkg) {
+	if level > site.level {
 		return nil
 	}
-	logentry := set.moduleEntry(pkg)
-
-	if wantFile {
-		logentry = logentry.WithFields(logrus.Fields{"file": fmt.Sprintf("'%s:%d'", file, line)})
-	}
-	if wantRoutines {
-		logentry = logentry.WithFields(logrus.Fields{"routines": runtime.NumGoroutine()})
-	}
-	return logentry
+	return set.withRoutines(site.entry)
 }
 
 func WithField(key string, value interface{}) *Entry {

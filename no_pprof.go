@@ -3,34 +3,9 @@
 
 package env_logger
 
-import (
-	"fmt"
-	"io/ioutil"
-	"net/http"
-	"strings"
-)
+import "net/http"
 
-func profileServer(port uint16) {
+// dynamic config still works without pprof
+func registerPprof(mux *http.ServeMux) {
 	Warn("pprof server not included at compiletime")
-
-	// make dynamic config still work
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "")
-	})
-
-	http.HandleFunc("/logstring", func(w http.ResponseWriter, r *http.Request) {
-		// function to allow dynamicaly setting the logstring
-		body, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, "Error: %s", err.Error())
-			return
-		}
-		debugConfig := strings.TrimSpace(string(body))
-		SetGlobalDebugConfig(debugConfig)
-
-		fmt.Fprintf(w, "New log config: %s", debugConfig)
-	})
-	Warnf("profileserver startet on port %d", port)
-	Error(http.ListenAndServe(fmt.Sprintf(":%d", port), nil))
 }
