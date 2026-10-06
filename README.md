@@ -33,6 +33,8 @@ Some bonus modifiers exist for the log config:
 - **log.ListModules** returns the names of all modules that have logged so far, these are the names to use in the log config
 - **log.Timer and log.TimerEnd** can be used to quickly measure the time between 2 places with a key, similar to js. this does not log on its own, use with one of the standard log functions (just like .Indent above)
 
+- **log.AddSink** passes every statement up to a level to a function as well, eg. to stream logs to a client. The level of a sink is independent of the log config: a sink at debug gets debug statements under LOG=info without them being printed. Statements only a sink wants are only produced while the sink exists, so this costs nothing when nobody listens. Call the returned function to remove the sink.
+
 ## Dynamic log config
 If pp is active and tags logpprof have been set use this command to change the logconfig dynamically
 

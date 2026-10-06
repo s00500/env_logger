@@ -142,3 +142,63 @@ func BenchmarkPackageEntryDebugFilteredOtherPkgDebug(b *testing.B) {
 		entry.Debug("hello world")
 	}
 }
+
+// BenchmarkDebugFilteredAfterSink: like BenchmarkDebugFiltered, after a sink
+// was added and removed again. Must cost the same as without ever having one.
+func BenchmarkDebugFilteredAfterSink(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info")
+	env_logger.AddSink(logrus.DebugLevel, func(env_logger.LogLine) {})()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		env_logger.Debug("hello world")
+	}
+}
+
+// BenchmarkInfoEmittedAfterSink: like BenchmarkInfoEmitted, after a sink was
+// added and removed again, which must leave no hook behind.
+func BenchmarkInfoEmittedAfterSink(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info")
+	env_logger.AddSink(logrus.DebugLevel, func(env_logger.LogLine) {})()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		env_logger.Info("hello world")
+	}
+}
+
+// BenchmarkDebugFilteredSinkAtInfo: a sink at info does not want debug
+// either, so Debug() stays as cheap as in BenchmarkDebugFiltered.
+func BenchmarkDebugFilteredSinkAtInfo(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info")
+	defer env_logger.AddSink(logrus.InfoLevel, func(env_logger.LogLine) {})()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		env_logger.Debug("hello world")
+	}
+}
+
+// BenchmarkInfoEmittedSinkActive: what a statement costs on top of
+// BenchmarkInfoEmitted while a sink listens.
+func BenchmarkInfoEmittedSinkActive(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info")
+	defer env_logger.AddSink(logrus.InfoLevel, func(env_logger.LogLine) {})()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		env_logger.Info("hello world")
+	}
+}
+
+// BenchmarkDebugSinkOnly: Debug() under LOG=info while a sink wants debug.
+// The statement is produced for the sink only, nothing is formatted.
+func BenchmarkDebugSinkOnly(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info")
+	defer env_logger.AddSink(logrus.DebugLevel, func(env_logger.LogLine) {})()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		env_logger.Debug("hello world")
+	}
+}

@@ -33,11 +33,18 @@ type loggerSet struct {
 	// is the default level when the config string does not name one. It has
 	// to be remembered because logger.Level is overwritten with maxLevel.
 	baseLevel logrus.Level
-	// maxLevel is the most permissive (highest numeric) level across
-	// defaultLevel and every per-package level. Used as a cheap gate so
-	// a Debug call under LOG=info can return without resolving the caller
-	// frame at all. It is also the level set on logger, so that logrus lets
-	// through whatever the most verbose package wants.
+	// outLevel is the most permissive (highest numeric) level across
+	// defaultLevel and every per-package level. It is the level set on
+	// logger, so that logrus lets through whatever the most verbose package
+	// wants.
+	outLevel logrus.Level
+	// sinkLevel is the most permissive level any sink wants, PanicLevel when
+	// there are no sinks. Calls above the level of their package but within
+	// sinkLevel are only handed to the sinks, see sink.go.
+	sinkLevel logrus.Level
+	// maxLevel is the most permissive of outLevel and sinkLevel. Used as a
+	// cheap gate so a Debug call under LOG=info can return without resolving
+	// the caller frame at all.
 	maxLevel logrus.Level
 	// filelines adds the file field (ln), printGoRoutines the routines
 	// field (gr) to every log statement.
@@ -75,6 +82,9 @@ type callSite struct {
 	level logrus.Level
 	// entry carries the module field, plus the file field if filelines is on
 	entry *logrus.Entry
+	// sinkEntry is entry bound to the sink logger. Only set when a sink wants
+	// more than level.
+	sinkEntry *logrus.Entry
 }
 
 // moduleEntry returns the cached module-decorated entry for pkg, building it
@@ -163,6 +173,9 @@ func (s *loggerSet) siteForPC(pc uintptr) *callSite {
 	if s.filelines {
 		site.entry = site.entry.WithFields(logrus.Fields{"file": site.file})
 	}
+	if s.sinkLevel > site.level {
+		site.sinkEntry = toSink(site.entry)
+	}
 	actual, _ := s.sites.LoadOrStore(pc, site)
 	return actual.(*callSite)
 }
@@ -173,17 +186,19 @@ var activeSet atomic.Pointer[loggerSet]
 // permissive level any package wants and makes the snapshot the active one.
 // Caller must hold configMu.
 func publishSet(set *loggerSet) *loggerSet {
-	set.maxLevel = set.defaultLevel
+	set.outLevel = set.defaultLevel
 	for _, lvl := range set.levels {
-		if lvl > set.maxLevel {
-			set.maxLevel = lvl
+		if lvl > set.outLevel {
+			set.outLevel = lvl
 		}
 	}
+	set.sinkLevel = sinkLevelLocked()
+	set.maxLevel = max(set.outLevel, set.sinkLevel)
 	set.sites = new(sync.Map)
 
 	// Hot-path readers see either the previous fully-built set or the new
 	// fully-built set, never a partial one.
-	set.logger.SetLevel(set.maxLevel)
+	set.logger.SetLevel(set.outLevel)
 	activeSet.Store(set)
 	return set
 }
@@ -194,7 +209,7 @@ func publishSet(set *loggerSet) *loggerSet {
 // being masked by the snapshot's levels.
 func loadSet() *loggerSet {
 	set := activeSet.Load()
-	if set.logger.GetLevel() != set.maxLevel {
+	if set.logger.GetLevel() != set.outLevel {
 		return resyncLevel()
 	}
 	return set
@@ -207,7 +222,7 @@ func resyncLevel() *loggerSet {
 	defer configMu.Unlock()
 
 	set := activeSet.Load()
-	if lvl := set.logger.GetLevel(); lvl != set.maxLevel {
+	if lvl := set.logger.GetLevel(); lvl != set.outLevel {
 		next := *set
 		next.defaultLevel, next.baseLevel = lvl, lvl
 		set = publishSet(&next)
@@ -325,9 +340,9 @@ func reconfigureActiveLogger(debugConfig string) {
 func configureLocked(newdefaultLogger *logrus.Logger, debugConfig string) {
 	// Without a global level in the config the logger keeps the level its
 	// owner gave it. When the active logger is passed in again its level
-	// holds our maxLevel instead, unless it was changed directly since.
+	// holds our outLevel instead, unless it was changed directly since.
 	baseLevel := newdefaultLogger.GetLevel()
-	if old := activeSet.Load(); old != nil && old.logger == newdefaultLogger && baseLevel == old.maxLevel {
+	if old := activeSet.Load(); old != nil && old.logger == newdefaultLogger && baseLevel == old.outLevel {
 		baseLevel = old.baseLevel
 	}
 
@@ -426,6 +441,7 @@ func configureLocked(newdefaultLogger *logrus.Logger, debugConfig string) {
 	}
 
 	publishSet(set)
+	hookSinksLocked(set.logger)
 
 	// Reported on the logger directly: the log functions of this package
 	// may need configMu, which is held here.
@@ -578,9 +594,14 @@ func getLoggerIfLevel(e *Entry, level logrus.Level) *logrus.Entry {
 		logentry := (*logrus.Entry)(e)
 		// Pre-existing entry: gate on the level of the module it was built for.
 		if level > set.levelForEntry(logentry) {
-			return nil
+			// Only a sink wants it
+			if level > set.sinkLevel {
+				return nil
+			}
+			logentry = toSink(logentry)
+		} else {
+			logentry = set.rebind(logentry)
 		}
-		logentry = set.rebind(logentry)
 		// The caller is only needed for the file field.
 		if set.filelines {
 			logentry = logentry.WithFields(logrus.Fields{"file": set.callSite(4).file})
@@ -591,9 +612,13 @@ func getLoggerIfLevel(e *Entry, level logrus.Level) *logrus.Entry {
 	site := set.callSite(4)
 
 	// Per-package gate: the global gate above only proved *some* package
-	// wants this level; *this* package might still reject it.
+	// (or sink) wants this level; *this* package might still reject it.
 	if level > site.level {
-		return nil
+		// Only a sink wants it
+		if level > set.sinkLevel {
+			return nil
+		}
+		return set.withRoutines(site.sinkEntry)
 	}
 	return set.withRoutines(site.entry)
 }
