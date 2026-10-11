@@ -230,8 +230,10 @@ func resyncLevel() *loggerSet {
 	return set
 }
 
-// Pass through type to not have another import in packages using this lib
-type Fields logrus.Fields
+// Fields is logrus.Fields, so packages using this lib do not need another
+// import: log.WithFields(log.Fields{"k": v}). An alias, so that values of
+// either can be passed wherever the other is expected.
+type Fields = logrus.Fields
 
 type Entry logrus.Entry
 

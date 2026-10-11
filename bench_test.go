@@ -2,6 +2,7 @@ package env_logger_test
 
 import (
 	"io"
+	"log/slog"
 	"testing"
 
 	env_logger "github.com/s00500/env_logger"
@@ -200,5 +201,43 @@ func BenchmarkDebugSinkOnly(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		env_logger.Debug("hello world")
+	}
+}
+
+// BenchmarkSlogDebugFiltered: a slog logger from Slog() calling Debug while
+// its module is at Info and another package at Trace, so the global gate
+// passes. Enabled returns false after one lookup of the module's level,
+// before slog builds a record: no caller lookup, no allocation.
+func BenchmarkSlogDebugFiltered(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info,other=trace")
+	logger := env_logger.Slog("lib")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		logger.Debug("hello world", "k", "v")
+	}
+}
+
+// BenchmarkSlogDefaultDebugFiltered: the handler of SetSlogDefault calling
+// Debug while no package wants debug.
+func BenchmarkSlogDefaultDebugFiltered(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info")
+	logger := slog.New(env_logger.SlogHandler(""))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		logger.Debug("hello world", "k", "v")
+	}
+}
+
+// BenchmarkSlogInfoEmitted: a slog logger from Slog() with an attribute,
+// emitted. Compare with BenchmarkEntryInfoEmitted.
+func BenchmarkSlogInfoEmitted(b *testing.B) {
+	env_logger.ConfigureAllLoggers(silentLogger(), "info")
+	logger := env_logger.Slog("lib")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		logger.Info("hello world", "k", "v")
 	}
 }
